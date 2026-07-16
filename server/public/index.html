@@ -1,0 +1,2479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Miller Bros Solar — IT Asset Management</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="/jsqr.min.js"></script>
+  <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    // ── API Configuration ──────────────────────────────────────────────────────
+    window.API_BASE = window.location.hostname === 'assets.mbs.local' ? 'https://assets.mbs.local' : 'http://10.0.0.5:3000';
+    window.authToken = localStorage.getItem('mbs_token') || null;
+
+    window.api = {
+      setToken: function(token) {
+        window.authToken = token;
+        if (token) localStorage.setItem('mbs_token', token);
+        else localStorage.removeItem('mbs_token');
+      },
+      headers: function() {
+        return {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + window.authToken
+        };
+      },
+      get: async function(path) {
+        const r = await fetch(window.API_BASE + path, { headers: this.headers() });
+        if (r.status === 401) { window.authToken = null; localStorage.removeItem('mbs_token'); throw new Error('Unauthorized'); }
+        return r.json();
+      },
+      post: async function(path, body) {
+        const r = await fetch(window.API_BASE + path, { method:'POST', headers: this.headers(), body: JSON.stringify(body) });
+        if (r.status === 401) { window.authToken = null; localStorage.removeItem('mbs_token'); throw new Error('Unauthorized'); }
+        return r.json();
+      },
+      put: async function(path, body) {
+        const r = await fetch(window.API_BASE + path, { method:'PUT', headers: this.headers(), body: JSON.stringify(body) });
+        if (r.status === 401) { window.authToken = null; localStorage.removeItem('mbs_token'); throw new Error('Unauthorized'); }
+        return r.json();
+      },
+      del: async function(path) {
+        const r = await fetch(window.API_BASE + path, { method:'DELETE', headers: this.headers() });
+        if (r.status === 401) { window.authToken = null; localStorage.removeItem('mbs_token'); throw new Error('Unauthorized'); }
+        return r.json();
+      }
+    };
+  </script>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+
+// ── API Data Layer ────────────────────────────────────────────────────────────
+async function loadAssets() {
+  try {
+    const data = await window.api.get('/api/assets');
+    // Map DB fields to app fields
+    return data.map(a => ({
+      id: a.id, tag: a.asset_tag, type: a.type, name: a.name, make: a.make, model: a.model,
+      serial: a.serial_number, assignedTo: a.assigned_to, location: a.location,
+      status: a.status || 'In Storage', condition: a.condition,
+      windowsLicense: a.windows_license, autopilotReady: a.autopilot_ready,
+      notes: a.notes, createdAt: a.created_at,
+      history: a.history || [], shippingRecords: a.shipping_records || [],
+      qrCode: a.qr_code || '', photos: a.photos || [],
+      entraName: a.entra_name || '', department: a.department || '',
+      imei: a.imei || '', warrantyExpiry: a.warranty_expiry,
+      warrantyExpired: a.warranty_expired,
+    }));
+  } catch { return []; }
+}
+async function saveCounter(n) { /* counter managed by DB */ }
+
+// ── Consumables API Layer ─────────────────────────────────────────────────────
+async function loadConsumables() {
+  try {
+    const data = await window.api.get('/api/consumables');
+    if (data.length === 0) {
+      for (const item of getDefaultConsumables()) {
+        await window.api.post('/api/consumables', { name: item.name, quantity: item.qty, low_at: item.lowAt, notes: item.notes });
+      }
+      const seeded = await window.api.get('/api/consumables');
+      return seeded.map(i => ({ id: i.id, name: i.name, qty: i.quantity, lowAt: i.low_at, notes: i.notes || "" }));
+    }
+    return data.map(i => ({ id: i.id, name: i.name, qty: i.quantity, lowAt: i.low_at, notes: i.notes || "" }));
+  } catch { return getDefaultConsumables(); }
+}
+function getDefaultConsumables() {
+  return [
+    { id:101, name:"Power Cords / AC Adapters",      qty:0, lowAt:3, notes:"" },
+    { id:102, name:"HDMI Cables",                     qty:0, lowAt:3, notes:"" },
+    { id:103, name:"DisplayPort Cables",              qty:0, lowAt:2, notes:"" },
+    { id:104, name:"USB-A Cables",                    qty:0, lowAt:5, notes:"" },
+    { id:105, name:"USB-C Cables",                    qty:0, lowAt:5, notes:"" },
+    { id:106, name:"Lightning Cables",                qty:0, lowAt:3, notes:"" },
+    { id:107, name:"Ethernet Cables",                 qty:0, lowAt:3, notes:"" },
+    { id:108, name:"Screen Protector — iPhone SE Gen 3", qty:0, lowAt:2, notes:"" },
+    { id:115, name:"Screen Protector — iPhone 14",       qty:0, lowAt:2, notes:"" },
+    { id:116, name:"Screen Protector — iPhone 15",       qty:0, lowAt:2, notes:"" },
+    { id:117, name:"Screen Protector — iPhone 16",       qty:0, lowAt:2, notes:"" },
+    { id:118, name:"Screen Protector — iPhone 17",       qty:0, lowAt:2, notes:"" },
+    { id:119, name:"OtterBox — iPhone SE Gen 3",         qty:0, lowAt:1, notes:"" },
+    { id:120, name:"OtterBox — iPhone 14",               qty:0, lowAt:1, notes:"" },
+    { id:121, name:"OtterBox — iPhone 15",               qty:0, lowAt:1, notes:"" },
+    { id:122, name:"OtterBox — iPhone 16",               qty:0, lowAt:1, notes:"" },
+    { id:123, name:"OtterBox — iPhone 17",               qty:0, lowAt:1, notes:"" },
+    { id:109, name:"Dell 51W Rugged Battery",          qty:0, lowAt:2, notes:"" },
+    { id:110, name:"Dell 53W Rugged Battery",          qty:0, lowAt:2, notes:"" },
+    { id:112, name:"Extension Cords",                 qty:0, lowAt:2, notes:"" },
+    { id:113, name:"Power Strips / Surge Protectors", qty:0, lowAt:2, notes:"" },
+    { id:114, name:"USB Hubs / Docks",                qty:0, lowAt:2, notes:"" },
+  ];
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const ASSET_TYPES = ["Desktop","Laptop","Server","Switch","Router","Firewall","Access Point","Monitor","Printer","UPS","Tablet","Phone","Cable / Peripheral","Other"];
+const CONDITIONS  = ["New","Excellent","Good","Fair","Poor","For Parts / Scrap"];
+const STATUSES    = ["In Service","In Storage","Staging","Awaiting Repair","Loaned Out","Decommissioned","Returned / Pending Review"];
+const LOCATIONS   = ["Server Room","Main Office","Warehouse","Storage Room","IT Department Storage","The Rock","Remote / Off-site","Repair Bay","On Loan","Shipped","Unknown"];
+const DEPARTMENTS = ["","IT","Operations","Sales","Admin","Field Crew","Management","Plant Manager","Finance"];
+const SHIP_TYPES  = ["Outbound – Shipping Out","Inbound – Receiving","Internal Transfer","Return to Vendor","Repair Dispatch","Other"];
+const CARRIERS    = ["","FedEx","UPS","USPS","DHL","Hand Delivered","Other"];
+
+const S_COLOR = {
+  "In Service":                { text:"#15803d", bg:"#f0fdf4", ring:"#86efac" },
+  "In Storage":                { text:"#1d4ed8", bg:"#eff6ff", ring:"#93c5fd" },
+  "Staging":                   { text:"#7c3aed", bg:"#f5f3ff", ring:"#c4b5fd" },
+  "Awaiting Repair":           { text:"#b45309", bg:"#fffbeb", ring:"#fcd34d" },
+  "Loaned Out":                { text:"#6d28d9", bg:"#f5f3ff", ring:"#c4b5fd" },
+  "Decommissioned":            { text:"#6b7280", bg:"#f9fafb", ring:"#d1d5db" },
+  "Returned / Pending Review": { text:"#0e7490", bg:"#ecfeff", ring:"#67e8f9" },
+};
+const C_COLOR = {
+  "New":"#15803d","Excellent":"#1d4ed8","Good":"#0e7490",
+  "Fair":"#b45309","Poor":"#dc2626","For Parts / Scrap":"#6b7280",
+};
+
+const T = {
+  amber:"#f59e0b", amberL:"#fef3c7", amberD:"#d97706",
+  slate:"#1e293b", muted:"#64748b", border:"#e2e8f0",
+  bg:"#f8fafc", white:"#ffffff",
+  font:"'DM Sans', sans-serif", mono:"'DM Mono', monospace",
+};
+
+const genTag   = n   => `MBS-${String(n).padStart(4,"0")}`;
+const nowISO   = ()  => new Date().toISOString();
+const fmtDate  = iso => iso ? new Date(iso).toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
+const fmtShort = iso => iso ? new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : null;
+const soonExp  = iso => iso && new Date(iso) < new Date(Date.now()+30*864e5);
+
+// ── Image helpers ────────────────────────────────────────────────────────────
+function readFileAsDataURL(file) {
+  return new Promise((res,rej) => {
+    const r = new FileReader();
+    r.onload  = () => res(r.result);
+    r.onerror = () => rej(new Error("Read failed"));
+    r.readAsDataURL(file);
+  });
+}
+async function compressImage(file, maxPx=1200, quality=0.75) {
+  const dataUrl = await readFileAsDataURL(file);
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width  * scale);
+      const h = Math.round(img.height * scale);
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      res(c.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+}
+
+// ── Shared UI ────────────────────────────────────────────────────────────────
+const iBase = {
+  width:"100%", padding:"8px 11px", fontSize:14, fontFamily:T.font,
+  border:`1.5px solid ${T.border}`, borderRadius:6, outline:"none",
+  background:T.white, color:T.slate, transition:"border-color .15s",
+};
+function FWrap({ label, children }) {
+  return <label style={{ display:"flex",flexDirection:"column",gap:5 }}>
+    <span style={{ fontSize:11,fontWeight:700,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>{label}</span>
+    {children}
+  </label>;
+}
+function TInput({ label, ...p }) {
+  const [f,sf]=useState(false);
+  return <FWrap label={label}><input {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)}
+    style={{...iBase,borderColor:f?T.amber:T.border,...(p.style||{})}} /></FWrap>;
+}
+function TSelect({ label, opts, ...p }) {
+  return <FWrap label={label}><select {...p} style={{...iBase,cursor:"pointer",...(p.style||{})}}>
+    {opts.map(o=><option key={o} value={o}>{o||"— None —"}</option>)}</select></FWrap>;
+}
+function TArea({ label, ...p }) {
+  const [f,sf]=useState(false);
+  return <FWrap label={label}><textarea {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)}
+    style={{...iBase,minHeight:80,resize:"vertical",borderColor:f?T.amber:T.border}} /></FWrap>;
+}
+function Badge({ status }) {
+  const c=S_COLOR[status]||{text:"#6b7280",bg:"#f9fafb",ring:"#d1d5db"};
+  return <span style={{ padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+    color:c.text,background:c.bg,border:`1.5px solid ${c.ring}`,whiteSpace:"nowrap" }}>{status}</span>;
+}
+function CondPill({ condition }) {
+  const col=C_COLOR[condition]||"#6b7280";
+  return <span style={{ display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:col,fontWeight:600 }}>
+    <span style={{ width:7,height:7,borderRadius:"50%",background:col,flexShrink:0 }} />{condition}
+  </span>;
+}
+function QRPill({ linked }) {
+  return linked
+    ? <span style={{ fontSize:11,fontWeight:700,color:"#15803d",background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:20,padding:"2px 9px" }}>▣ QR Linked</span>
+    : <span style={{ fontSize:11,fontWeight:700,color:"#b45309",background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:20,padding:"2px 9px" }}>▢ No QR Tag</span>;
+}
+function Btn({ variant="primary", sm, children, ...p }) {
+  const styles = {
+    primary:   { background:T.amber,   color:"#fff",    border:"none",                   boxShadow:`0 1px 4px ${T.amber}55` },
+    secondary: { background:T.white,   color:T.muted,   border:`1.5px solid ${T.border}`,boxShadow:"none" },
+    danger:    { background:T.white,   color:"#dc2626", border:"1.5px solid #fca5a5",    boxShadow:"none" },
+    success:   { background:"#16a34a", color:"#fff",    border:"none",                   boxShadow:"none" },
+    amber_out: { background:T.white,   color:T.amberD,  border:`1.5px solid ${T.amber}`, boxShadow:"none" },
+    blue_out:  { background:T.white,   color:"#1d4ed8", border:"1.5px solid #93c5fd",    boxShadow:"none" },
+  };
+  return <button {...p} style={{ ...styles[variant], borderRadius:7,
+    padding:sm?"5px 12px":"9px 18px", fontSize:sm?12:13, fontWeight:600,
+    cursor:"pointer", fontFamily:T.font, transition:"opacity .15s", ...(p.style||{}) }}>{children}</button>;
+}
+function Modal({ title, sub, onClose, wide, children }) {
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,.45)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:20 }}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:T.white,borderRadius:12,width:"100%",maxWidth:wide?800:540,
+        maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.18)",
+        border:`1px solid ${T.border}` }}>
+        {(title||sub) && (
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",
+            padding:"20px 24px 16px",borderBottom:`1.5px solid ${T.border}` }}>
+            <div>
+              {title&&<div style={{ fontSize:17,fontWeight:700,color:T.slate }}>{title}</div>}
+              {sub&&<div style={{ fontSize:12,color:T.muted,marginTop:2 }}>{sub}</div>}
+            </div>
+            <button onClick={onClose} style={{ background:"none",border:"none",fontSize:22,
+              cursor:"pointer",color:"#94a3b8",lineHeight:1,marginTop:-2 }}>×</button>
+          </div>
+        )}
+        <div style={{ padding:24 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Photo Upload Component ───────────────────────────────────────────────────
+function PhotoUploader({ photos, onChange }) {
+  const [dragging, setDragging] = useState(false);
+
+  const processFiles = async (files) => {
+    const newPhotos = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      try {
+        const compressed = await compressImage(file);
+        newPhotos.push({ id: Date.now() + Math.random(), dataUrl: compressed, name: file.name, addedAt: nowISO() });
+      } catch {}
+    }
+    if (newPhotos.length) onChange([...photos, ...newPhotos]);
+  };
+
+  const removePhoto = (id) => onChange(photos.filter(p => p.id !== id));
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+      {/* Drop zone */}
+      <div
+        onDragOver={e=>{ e.preventDefault(); setDragging(true); }}
+        onDragLeave={()=>setDragging(false)}
+        onDrop={e=>{ e.preventDefault(); setDragging(false); processFiles(e.dataTransfer.files); }}
+        style={{ border:`2px dashed ${dragging?T.amber:T.border}`, borderRadius:8,
+          padding:"20px 16px", textAlign:"center", background:dragging?T.amberL:T.bg,
+          transition:"all .15s", cursor:"pointer" }}
+        onClick={()=>document.getElementById("photo-upload-input").click()}>
+        <div style={{ fontSize:24, marginBottom:6 }}>📷</div>
+        <div style={{ fontSize:13, fontWeight:600, color:T.slate }}>Click to add photos</div>
+        <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>or drag and drop — iPhone camera photos work great</div>
+        <input id="photo-upload-input" type="file" accept="image/*" multiple capture="environment"
+          style={{ display:"none" }} onChange={e=>processFiles(e.target.files)} />
+      </div>
+
+      {/* Photo grid */}
+      {photos.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:8 }}>
+          {photos.map(p=>(
+            <div key={p.id} style={{ position:"relative", borderRadius:7, overflow:"hidden",
+              border:`1.5px solid ${T.border}`, background:T.bg }}>
+              <img src={p.dataUrl} alt={p.name}
+                style={{ width:"100%", height:100, objectFit:"cover", display:"block" }} />
+              <div style={{ padding:"4px 6px", fontSize:10, color:T.muted,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
+              <button onClick={()=>removePhoto(p.id)}
+                style={{ position:"absolute",top:4,right:4,background:"rgba(0,0,0,.55)",
+                  border:"none",borderRadius:"50%",width:20,height:20,cursor:"pointer",
+                  color:"#fff",fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Photo Lightbox ───────────────────────────────────────────────────────────
+function Lightbox({ photo, onClose }) {
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:500,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20 }}
+      onClick={onClose}>
+      <div style={{ position:"relative", maxWidth:"90vw", maxHeight:"90vh" }} onClick={e=>e.stopPropagation()}>
+        <img src={photo.dataUrl} alt={photo.name}
+          style={{ maxWidth:"100%",maxHeight:"85vh",objectFit:"contain",borderRadius:8,display:"block" }} />
+        <div style={{ textAlign:"center",marginTop:8,fontSize:12,color:"#94a3b8" }}>
+          {photo.name} · {fmtDate(photo.addedAt)}
+        </div>
+        <button onClick={onClose} style={{ position:"absolute",top:-12,right:-12,
+          background:"#fff",border:"none",borderRadius:"50%",width:28,height:28,
+          cursor:"pointer",fontSize:16,fontWeight:700,color:T.slate,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          boxShadow:"0 2px 8px rgba(0,0,0,.3)" }}>×</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Shipping Form ────────────────────────────────────────────────────────────
+function ShippingForm({ asset, onSave, onCancel }) {
+  const [f,sF] = useState({
+    type:"Outbound – Shipping Out", carrier:"", trackingNumber:"",
+    sentTo:"", sentFrom:"", handledBy:"", notes:"", photos:[],
+  });
+  const s=(k,v)=>sF(x=>({...x,[k]:v}));
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+      {/* Asset summary */}
+      <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:8,
+        padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8 }}>
+        <div>
+          <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>{asset.tag}</div>
+          <div style={{ fontSize:13,color:T.muted,marginTop:1 }}>{asset.name||[asset.make,asset.model].filter(Boolean).join(" ")||"Unnamed"}</div>
+        </div>
+        <Badge status={asset.status} />
+      </div>
+
+      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+        <TSelect label="Shipment Type" opts={SHIP_TYPES} value={f.type} onChange={e=>s("type",e.target.value)} />
+        <TSelect label="Carrier" opts={CARRIERS} value={f.carrier} onChange={e=>s("carrier",e.target.value)} />
+        <TInput label="Tracking Number" value={f.trackingNumber} onChange={e=>s("trackingNumber",e.target.value)} placeholder="Optional" />
+        <TInput label="Handled By" value={f.handledBy} onChange={e=>s("handledBy",e.target.value)} placeholder="Your name" />
+        <TInput label="Sent To" value={f.sentTo} onChange={e=>s("sentTo",e.target.value)} placeholder="Name / address / site" />
+        <TInput label="Sent From" value={f.sentFrom} onChange={e=>s("sentFrom",e.target.value)} placeholder="Location shipped from" />
+      </div>
+      <TArea label="Notes" value={f.notes} onChange={e=>s("notes",e.target.value)} placeholder="Packing details, condition when dispatched, any special handling…" />
+
+      {/* Photo section */}
+      <div>
+        <div style={{ fontSize:11,fontWeight:700,color:T.muted,letterSpacing:.8,
+          textTransform:"uppercase",marginBottom:8 }}>Proof Photos</div>
+        <div style={{ fontSize:12,color:T.muted,marginBottom:8 }}>
+          Add photos of the shipping label, packed box, or condition of the item before dispatch.
+        </div>
+        <PhotoUploader photos={f.photos} onChange={v=>s("photos",v)} />
+      </div>
+
+      <div style={{ display:"flex",gap:8,justifyContent:"flex-end",marginTop:4 }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+        <Btn variant="primary" onClick={()=>onSave(f)}>Log Shipment</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── Shipping History ─────────────────────────────────────────────────────────
+function ShippingHistory({ records }) {
+  const [lightbox, setLightbox] = useState(null);
+  if (!records?.length) return null;
+  return (
+    <div>
+      <div style={{ fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:.8,
+        textTransform:"uppercase",marginBottom:10 }}>Shipping / Transfer History ({records.length})</div>
+      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        {[...records].reverse().map((r,i)=>(
+          <div key={i} style={{ background:"#eff6ff",border:"1px solid #93c5fd",borderRadius:8,padding:"12px 14px" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6,marginBottom:8 }}>
+              <div>
+                <span style={{ fontSize:13,fontWeight:700,color:"#1d4ed8" }}>{r.type}</span>
+                {r.carrier&&<span style={{ fontSize:12,color:T.muted,marginLeft:10 }}>{r.carrier}</span>}
+              </div>
+              <span style={{ fontSize:11,color:"#3b82f6",fontWeight:600 }}>{fmtDate(r.date)}</span>
+            </div>
+            <div style={{ display:"flex",gap:16,flexWrap:"wrap",fontSize:12,color:"#475569",marginBottom:r.notes||r.photos?.length?8:0 }}>
+              {r.handledBy&&<span>By: <strong style={{color:T.slate}}>{r.handledBy}</strong></span>}
+              {r.sentTo&&<span>To: <strong style={{color:T.slate}}>{r.sentTo}</strong></span>}
+              {r.sentFrom&&<span>From: <strong style={{color:T.slate}}>{r.sentFrom}</strong></span>}
+              {r.trackingNumber&&<span>Tracking: <strong style={{color:T.slate,fontFamily:T.mono}}>{r.trackingNumber}</strong></span>}
+            </div>
+            {r.notes&&<div style={{ fontSize:12,color:"#64748b",fontStyle:"italic",marginBottom:r.photos?.length?8:0 }}>{r.notes}</div>}
+            {/* Photo thumbnails */}
+            {r.photos?.length>0&&(
+              <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginTop:6 }}>
+                {r.photos.map(p=>(
+                  <div key={p.id} onClick={()=>setLightbox(p)}
+                    style={{ width:72,height:72,borderRadius:6,overflow:"hidden",
+                      border:`1.5px solid #93c5fd`,cursor:"pointer",flexShrink:0,
+                      position:"relative" }}>
+                    <img src={p.dataUrl} alt={p.name} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
+                    <div style={{ position:"absolute",inset:0,background:"transparent",
+                      transition:"background .15s" }}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,.15)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"} />
+                  </div>
+                ))}
+                <div style={{ display:"flex",alignItems:"center",fontSize:11,color:"#3b82f6",fontWeight:600,marginLeft:4 }}>
+                  {r.photos.length} photo{r.photos.length>1?"s":""}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {lightbox&&<Lightbox photo={lightbox} onClose={()=>setLightbox(null)} />}
+    </div>
+  );
+}
+
+// ── QR Association Modal ─────────────────────────────────────────────────────
+function QRAssocModal({ asset, allAssets, onSave, onRemove, onClose }) {
+  const [val,setVal]           = useState(asset.qrCode||"");
+  const [scanning,setScanning] = useState(false);
+  const [camErr,setCamErr]     = useState("");
+  const [jsQRLib,setJsQRLib]   = useState(null);
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const rafRef    = useRef(null);
+  const streamRef = useRef(null);
+
+  const conflict = val && allAssets.find(a=>a.id!==asset.id&&a.qrCode===val.trim());
+
+  // Lazy-load jsQR fallback
+  useEffect(()=>{
+    if(scanning && !jsQRLib){
+      const s=document.createElement("script");
+      s.src="/jsqr.min.js";
+      s.onload=()=>setJsQRLib(()=>window.jsQR);
+      document.head.appendChild(s);
+    }
+  },[scanning]);
+
+  const stopCamera = useCallback(()=>{
+    cancelAnimationFrame(rafRef.current);
+    if(streamRef.current) streamRef.current.getTracks().forEach(t=>t.stop());
+    streamRef.current=null;
+    setScanning(false);
+  },[]);
+
+  const startCamera = useCallback(async()=>{
+    setCamErr(""); setVal("");
+    setScanning(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:"environment", width:{ideal:1280}, height:{ideal:720} }
+      });
+      streamRef.current=stream;
+      await new Promise(r=>setTimeout(r,100));
+      if(videoRef.current){
+        videoRef.current.srcObject=stream;
+        await videoRef.current.play();
+      }
+    } catch(e){
+      setCamErr("Camera access denied. Please type the QR code value manually.");
+      setScanning(false);
+    }
+  },[]);
+
+  // Scan loop - uses jsQR every 300ms
+  useEffect(()=>{
+    if(!scanning) return;
+    const interval = setInterval(()=>{
+      const video=videoRef.current;
+      const canvas=canvasRef.current;
+      if(!video||!canvas||video.readyState<2) return;
+      canvas.width=video.videoWidth||640;
+      canvas.height=video.videoHeight||480;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      if(window.jsQR){
+        const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+        const code=window.jsQR(img.data,img.width,img.height,{inversionAttempts:"attemptBoth"});
+        if(code){
+          const v=code.data;
+          const m=v.match(/\/asset\/([^/?#]+)/);
+          stopCamera();
+          setVal(m?m[1]:v);
+        }
+      }
+    },300);
+    return ()=>clearInterval(interval);
+  },[scanning,stopCamera]);
+
+  useEffect(()=>()=>stopCamera(),[]);
+
+  return (
+    <Modal title="Associate QR Code"
+      sub={`${asset.tag} — ${asset.name||[asset.make,asset.model].filter(Boolean).join(" ")||"Unnamed"}`}
+      onClose={()=>{ stopCamera(); onClose(); }}>
+      <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+
+        {/* Camera viewfinder */}
+        {scanning ? (
+          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            <div style={{ position:"relative",borderRadius:8,overflow:"hidden",background:"#000",
+              border:`2px solid ${T.amber}` }}>
+              <video ref={videoRef} muted playsInline
+                style={{ width:"100%",maxHeight:260,objectFit:"cover",display:"block" }} />
+              <canvas ref={canvasRef} style={{ display:"none" }} />
+              {/* Targeting overlay */}
+              <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none" }}>
+                <div style={{ width:160,height:160,border:"2px solid rgba(245,158,11,.85)",borderRadius:12,
+                  boxShadow:"0 0 0 9999px rgba(0,0,0,.38)" }}>
+                  {[["0","0"],["0","auto"],["auto","0"],["auto","auto"]].map(([t,b],i)=>(
+                    <div key={i} style={{ position:"absolute",
+                      top:t,bottom:b,left:i<2?"0":"auto",right:i>=2?"0":"auto",
+                      width:16,height:16,
+                      borderTop:t==="0"?"3px solid #f59e0b":"none",
+                      borderBottom:b==="0"?"3px solid #f59e0b":"none",
+                      borderLeft:(i===0||i===2)?"3px solid #f59e0b":"none",
+                      borderRight:(i===1||i===3)?"3px solid #f59e0b":"none",
+                    }}/>
+                  ))}
+                </div>
+              </div>
+              <div style={{ position:"absolute",bottom:8,left:0,right:0,textAlign:"center",
+                fontSize:12,color:"rgba(255,255,255,.85)",fontWeight:600 }}>
+                Point at QR sticker…
+              </div>
+            </div>
+            <Btn variant="secondary" onClick={stopCamera}>✕ Cancel Scan</Btn>
+          </div>
+        ) : (
+          <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+            {/* Scan button */}
+            <button onClick={startCamera}
+              style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+                background:"linear-gradient(135deg,#1e293b 0%,#334155 100%)",
+                color:"#fff",border:"none",borderRadius:8,padding:"14px 18px",
+                fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:T.font,
+                boxShadow:"0 2px 8px rgba(0,0,0,.18)" }}>
+              <span style={{ fontSize:22 }}>📷</span>
+              Scan QR Sticker with Camera
+            </button>
+            {/* Divider */}
+            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+              <div style={{ flex:1,height:1,background:T.border }} />
+              <span style={{ fontSize:11,color:T.muted,fontWeight:600 }}>OR TYPE MANUALLY</span>
+              <div style={{ flex:1,height:1,background:T.border }} />
+            </div>
+            <TInput label="QR Code Value" value={val} onChange={e=>setVal(e.target.value)} placeholder="e.g. QR-00042" />
+          </div>
+        )}
+
+        {camErr&&(
+          <div style={{ background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:6,padding:"10px 14px",fontSize:12,color:"#dc2626" }}>
+            ⚠ {camErr}
+          </div>
+        )}
+
+        {/* Scanned result preview */}
+        {val&&!scanning&&(
+          <div style={{ background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:6,padding:"10px 14px",
+            fontSize:13,color:"#15803d",display:"flex",alignItems:"center",gap:8 }}>
+            <span style={{ fontSize:18 }}>▣</span>
+            <span>Ready to link: <strong style={{fontFamily:T.mono}}>{val}</strong></span>
+          </div>
+        )}
+
+        {conflict&&(
+          <div style={{ background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:6,padding:"10px 14px",fontSize:12,color:"#dc2626" }}>
+            ⚠ Already linked to <strong>{conflict.tag}</strong>. Scan or enter a different sticker.
+          </div>
+        )}
+
+        {asset.qrCode&&(
+          <div style={{ background:"#f8fafc",border:"1.5px solid #e2e8f0",borderRadius:6,padding:"10px 14px",
+            fontSize:12,color:T.muted,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span>Currently linked: <strong style={{fontFamily:T.mono,color:T.slate}}>{asset.qrCode}</strong></span>
+            <button onClick={onRemove} style={{ background:"none",border:"none",color:"#dc2626",fontSize:12,cursor:"pointer",fontWeight:600 }}>Remove</button>
+          </div>
+        )}
+
+        <div style={{ height:1,background:T.border }} />
+        <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
+          <Btn variant="secondary" onClick={()=>{ stopCamera(); onClose(); }}>Cancel</Btn>
+          <Btn variant="primary"
+            onClick={()=>{ if(!conflict&&val.trim()) onSave(val.trim()); }}
+            style={{ opacity:(!val.trim()||conflict||scanning)?"0.4":"1",pointerEvents:(!val.trim()||conflict||scanning)?"none":"auto" }}>
+            {asset.qrCode?"Update QR Link":"Link QR Code"}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Asset Form ───────────────────────────────────────────────────────────────
+function AssetForm({ initial, nextTag, onSave, onCancel, allAssets=[] }) {
+  const [f,sF]=useState(initial||{ tag:nextTag,name:"",type:"Desktop",make:"",model:"",serial:"",imei:"",
+    status:"In Storage",condition:"Good",location:"Storage Room",department:"",
+    assignedTo:"",purchaseDate:"",warrantyExpiry:"",warrantyExpired:false,entraName:"",windowsLicense:false,autopilotReady:false,notes:"" });
+  const s=(k,v)=>sF(x=>({...x,[k]:v}));
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:4 }}>
+          <FWrap label="Asset Tag">
+            <input value={f.tag} onChange={e=>s("tag",e.target.value)}
+              onFocus={()=>{}} onBlur={()=>{}}
+              style={{...iBase, borderColor: allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id))?"#dc2626":T.border}} />
+          </FWrap>
+          {allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id))&&(
+            <div style={{ fontSize:12,color:"#dc2626",fontWeight:600,background:"#fef2f2",
+              border:"1px solid #fca5a5",borderRadius:5,padding:"5px 10px" }}>
+              ⚠ Tag {f.tag.trim()} already exists — tags must be unique
+            </div>
+          )}
+        </div>
+        <TInput label="Asset Name / Description" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. Dell OptiPlex 7090" />
+        <TSelect label="Type" opts={ASSET_TYPES} value={f.type} onChange={e=>s("type",e.target.value)} />
+        <TInput label="Make / Brand" value={f.make} onChange={e=>s("make",e.target.value)} placeholder="Dell, HP, Cisco…" />
+        <TInput label="Model" value={f.model} onChange={e=>s("model",e.target.value)} />
+        <TInput label="Serial Number" value={f.serial} onChange={e=>s("serial",e.target.value)} />
+        {(f.type==="Phone"||f.type==="Tablet") && (
+          <TInput label="IMEI Number" value={f.imei||""} onChange={e=>s("imei",e.target.value)} placeholder="15-digit IMEI — dial *#06# to find it" />
+        )}
+        <TSelect label="Status" opts={STATUSES} value={f.status} onChange={e=>s("status",e.target.value)} />
+        <TSelect label="Condition" opts={CONDITIONS} value={f.condition} onChange={e=>s("condition",e.target.value)} />
+        <TSelect label="Location" opts={LOCATIONS} value={f.location} onChange={e=>s("location",e.target.value)} />
+        <TSelect label="Department" opts={DEPARTMENTS} value={f.department} onChange={e=>s("department",e.target.value)} />
+        <TInput label="Assigned To" value={f.assignedTo} onChange={e=>s("assignedTo",e.target.value)} placeholder="Name or N/A" />
+        {(f.type==="Desktop"||f.type==="Laptop") && (
+          <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+            <span style={{ fontSize:11,fontWeight:700,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>Entra / Intune Device Name</span>
+            <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+              <span style={{ fontSize:12,fontWeight:700,color:T.amberD,fontFamily:T.mono,
+                background:T.amberL,border:`1px solid #fcd34d`,borderRadius:4,
+                padding:"8px 10px",whiteSpace:"nowrap" }}>
+                {f.type==="Laptop"?"MBS-LT-":"MBS-DT-"}
+              </span>
+              <input value={(f.entraName||"").replace(/^(MBS-LT-|MBS-DT-)/,"")}
+                onChange={e=>s("entraName",(f.type==="Laptop"?"MBS-LT-":"MBS-DT-")+e.target.value)}
+                placeholder="e.g. 00042"
+                style={{...iBase,flex:1}} />
+            </div>
+            {f.entraName&&<div style={{ fontSize:11,color:T.muted }}>Full name: <strong style={{fontFamily:T.mono,color:T.slate}}>{f.entraName}</strong></div>}
+            {f.entraName&&allAssets.find(a=>a.entraName&&a.entraName===f.entraName.trim()&&a.id!==(initial&&initial.id))&&(
+              <div style={{ fontSize:12,color:"#dc2626",fontWeight:600,background:"#fef2f2",
+                border:"1px solid #fca5a5",borderRadius:5,padding:"5px 10px",marginTop:2 }}>
+                ⚠ Intune name {f.entraName.trim()} is already assigned to another asset
+              </div>
+            )}
+          </div>
+        )}
+        <TInput label="Purchase Date" type="date" value={f.purchaseDate} onChange={e=>s("purchaseDate",e.target.value)} />
+        <div style={{ display:"flex",flexDirection:"column",gap:5 }}>
+          <span style={{ fontSize:11,fontWeight:700,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>Warranty</span>
+          <label style={{ display:"flex",alignItems:"center",gap:7,cursor:"pointer" }}>
+            <input type="checkbox" checked={!!f.warrantyExpired} onChange={e=>{ s("warrantyExpired",e.target.checked); if(e.target.checked) s("warrantyExpiry",""); }}
+              style={{ width:15,height:15,accentColor:"#dc2626",cursor:"pointer" }} />
+            <span style={{ fontSize:12,fontWeight:600,color: f.warrantyExpired ? "#dc2626" : T.muted }}>Warranty Expired</span>
+          </label>
+          {!f.warrantyExpired && (
+            <input type="date" value={f.warrantyExpiry} onChange={e=>s("warrantyExpiry",e.target.value)}
+              style={{...iBase}} />
+          )}
+          {f.warrantyExpired && (
+            <div style={{ fontSize:12,color:"#dc2626",background:"#fef2f2",border:"1px solid #fca5a5",
+              borderRadius:6,padding:"6px 10px",fontWeight:600 }}>No active warranty</div>
+          )}
+        </div>
+      </div>
+      {(f.type==="Desktop"||f.type==="Laptop")&&(
+      <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+        <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",flex:1,minWidth:200,
+          padding:"10px 12px",borderRadius:6,border:`1.5px solid ${f.windowsLicense?"#86efac":"#e2e8f0"}`,
+          background:f.windowsLicense?"#f0fdf4":"#f8fafc",transition:"all .15s" }}>
+          <input type="checkbox" checked={!!f.windowsLicense} onChange={e=>s("windowsLicense",e.target.checked)}
+            style={{ width:15,height:15,accentColor:"#16a34a",cursor:"pointer",flexShrink:0 }} />
+          <span style={{ fontSize:13,fontWeight:600,color:f.windowsLicense?"#15803d":T.muted }}>Windows License Assigned</span>
+          {f.windowsLicense&&<span style={{ fontSize:11,color:"#15803d",marginLeft:"auto" }}>✓ Licensed</span>}
+        </label>
+        <label style={{ display:"flex",alignItems:"center",gap:8,cursor:"pointer",flex:1,minWidth:200,
+          padding:"10px 12px",borderRadius:6,border:`1.5px solid ${f.autopilotReady?"#93c5fd":"#e2e8f0"}`,
+          background:f.autopilotReady?"#eff6ff":"#f8fafc",transition:"all .15s" }}>
+          <input type="checkbox" checked={!!f.autopilotReady} onChange={e=>s("autopilotReady",e.target.checked)}
+            style={{ width:15,height:15,accentColor:"#1d4ed8",cursor:"pointer",flexShrink:0 }} />
+          <span style={{ fontSize:13,fontWeight:600,color:f.autopilotReady?"#1d4ed8":T.muted }}>Windows Autopilot Ready</span>
+          {f.autopilotReady&&<span style={{ fontSize:11,color:"#1d4ed8",marginLeft:"auto" }}>✓ Ready</span>}
+        </label>
+      </div>
+      )}
+      <TArea label="Notes / Specs" value={f.notes} onChange={e=>s("notes",e.target.value)} placeholder="Specs, accessories, known issues…" />
+      <div style={{ display:"flex",gap:8,justifyContent:"flex-end",marginTop:4 }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+        {(()=>{
+          const dupTag=allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id));
+          const dupIntune=f.entraName&&allAssets.find(a=>a.entraName&&a.entraName===f.entraName.trim()&&a.id!==(initial&&initial.id));
+          const blocked=dupTag||dupIntune;
+          return (
+            <Btn variant="primary" onClick={()=>{ if(blocked) return; onSave(f); }}
+              style={{ opacity:blocked?".4":"1", cursor:blocked?"not-allowed":"pointer" }}
+              title={dupTag?"Fix duplicate asset tag before saving":dupIntune?"Fix duplicate Intune name before saving":""}>
+              {initial?"Save Changes":"Add Asset"}
+            </Btn>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ── Check-In Form ────────────────────────────────────────────────────────────
+function CheckInForm({ asset, onSave, onCancel }) {
+  const [f,sF]=useState({ conditionOnReturn:asset.condition,newStatus:"Returned / Pending Review",
+    receivedBy:"",returnedFrom:"",accessories:"",notes:"" });
+  const s=(k,v)=>sF(x=>({...x,[k]:v}));
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+      <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:8,
+        padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8 }}>
+        <div>
+          <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>{asset.tag}</div>
+          <div style={{ fontSize:13,color:T.muted }}>{asset.name||[asset.make,asset.model].filter(Boolean).join(" ")||"Unnamed"}</div>
+        </div>
+        <Badge status={asset.status} />
+      </div>
+      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+        <TSelect label="Condition on Return" opts={CONDITIONS} value={f.conditionOnReturn} onChange={e=>s("conditionOnReturn",e.target.value)} />
+        <TSelect label="Update Status To" opts={STATUSES} value={f.newStatus} onChange={e=>s("newStatus",e.target.value)} />
+        <TInput label="Received By" value={f.receivedBy} onChange={e=>s("receivedBy",e.target.value)} placeholder="Your name" />
+        <TInput label="Returned From" value={f.returnedFrom} onChange={e=>s("returnedFrom",e.target.value)} placeholder="User / location" />
+      </div>
+      <TInput label="Accessories Included" value={f.accessories} onChange={e=>s("accessories",e.target.value)} placeholder="Power cable, bag, mouse…" />
+      <TArea label="Condition Notes" value={f.notes} onChange={e=>s("notes",e.target.value)} placeholder="Physical condition, damage, missing items…" />
+      <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+        <Btn variant="success" onClick={()=>onSave(f)}>Log Check-In</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── Asset Detail ─────────────────────────────────────────────────────────────
+function AssetDetail({ asset, onEdit, onCheckin, onShipping, onLinkQR, onDelete }) {
+  const [lightbox,setLightbox]=useState(null);
+  const [confirmDelete,setConfirmDelete]=useState(false);
+  const name=asset.name||[asset.make,asset.model].filter(Boolean).join(" ")||"Unnamed Asset";
+  const infoFields=[
+    ["Make",asset.make],["Model",asset.model],["Serial Number",asset.serial],["IMEI",(asset.type==="Phone"||asset.type==="Tablet")?asset.imei:null],
+    ["Assigned To",asset.assignedTo],["Entra / Intune Name",(asset.type==="Desktop"||asset.type==="Laptop")?asset.entraName:null],["Windows License",(asset.type==="Desktop"||asset.type==="Laptop")?(asset.windowsLicense?"✓ Assigned":"✗ Not Assigned"):null],["Autopilot Ready",(asset.type==="Desktop"||asset.type==="Laptop")?(asset.autopilotReady?"✓ Yes":"✗ No"):null],["Department",asset.department],
+    ["Purchase Date",fmtShort(asset.purchaseDate)],
+    ["Warranty Expiry",fmtShort(asset.warrantyExpiry)],
+    ["Warranty Status", asset.warrantyExpired ? "⚠ Expired" : (asset.warrantyExpiry ? "Active" : null)],
+  ].filter(([,v])=>v);
+  const totalPhotos=(asset.shippingRecords||[]).reduce((n,r)=>n+(r.photos?.length||0),0);
+
+  return (
+    <div style={{ display:"flex",flexDirection:"column",gap:18 }}>
+      {/* Header */}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap" }}>
+        <div>
+          <div style={{ fontSize:12,fontWeight:700,color:T.amber,letterSpacing:.5,marginBottom:3,fontFamily:T.mono }}>{asset.tag}</div>
+          <div style={{ fontSize:20,fontWeight:700,color:T.slate }}>{name}</div>
+          <div style={{ fontSize:13,color:T.muted,marginTop:4 }}>
+            {[asset.type,asset.department,asset.location].filter(Boolean).join("  ·  ")}
+          </div>
+        </div>
+        <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+          <Btn variant="secondary" sm onClick={onEdit}>Edit</Btn>
+          <Btn variant="amber_out" sm onClick={onLinkQR}>{asset.qrCode?"▣ QR":"▢ Link QR"}</Btn>
+          <Btn variant="blue_out" sm onClick={onShipping}>📦 Log Shipment</Btn>
+          <Btn variant="primary" sm onClick={onCheckin}>Log Check-In</Btn>
+        </div>
+      </div>
+
+      {/* Status pills */}
+      <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
+        <Badge status={asset.status} />
+        <CondPill condition={asset.condition} />
+        <QRPill linked={!!asset.qrCode} />
+        {asset.qrCode&&<span style={{ fontSize:11,color:T.muted,fontFamily:T.mono,background:T.bg,
+          padding:"2px 8px",borderRadius:4,border:`1px solid ${T.border}` }}>{asset.qrCode}</span>}
+        {totalPhotos>0&&<span style={{ fontSize:11,fontWeight:700,color:"#1d4ed8",background:"#eff6ff",
+          border:"1.5px solid #93c5fd",borderRadius:20,padding:"2px 9px" }}>📷 {totalPhotos} photo{totalPhotos>1?"s":""}</span>}
+        {asset.warrantyExpired
+          ? <span style={{ fontSize:11,fontWeight:700,color:"#dc2626",background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:20,padding:"2px 9px" }}>⚠ Warranty Expired</span>
+          : soonExp(asset.warrantyExpiry)&&<span style={{ fontSize:11,fontWeight:700,color:"#b45309",background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:20,padding:"2px 9px" }}>⚠ Warranty Expiring Soon</span>}
+      </div>
+
+      {/* Info grid */}
+      {infoFields.length>0&&(
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8 }}>
+          {infoFields.map(([k,v])=>(
+            <div key={k} style={{ background:T.bg,borderRadius:7,padding:"9px 13px",border:`1px solid ${T.border}` }}>
+              <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase",marginBottom:3 }}>{k}</div>
+              <div style={{ fontSize:13,color:T.slate,fontWeight:500 }}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {asset.notes&&(
+        <div style={{ background:T.amberL,border:`1px solid #fcd34d`,borderRadius:7,padding:"10px 14px",fontSize:13,color:"#78350f" }}>
+          <div style={{ fontSize:10,fontWeight:700,color:T.amberD,letterSpacing:.7,marginBottom:4 }}>NOTES</div>
+          {asset.notes}
+        </div>
+      )}
+
+      {/* Shipping history */}
+      <ShippingHistory records={asset.shippingRecords} />
+
+      {/* Check-in history */}
+      {asset.history?.length>0&&(
+        <div>
+          <div style={{ fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:.8,textTransform:"uppercase",marginBottom:10 }}>
+            Check-In History ({asset.history.length})
+          </div>
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            {[...asset.history].reverse().map((h,i)=>(
+              <div key={i} style={{ background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:7,padding:"10px 14px" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6,marginBottom:6 }}>
+                  <span style={{ fontSize:12,color:"#15803d",fontWeight:600 }}>{fmtDate(h.date)}</span>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}><Badge status={h.newStatus} /><CondPill condition={h.conditionOnReturn} /></div>
+                </div>
+                <div style={{ fontSize:12,color:"#475569",display:"flex",gap:16,flexWrap:"wrap" }}>
+                  {h.receivedBy&&<span>Received by: <strong style={{color:T.slate}}>{h.receivedBy}</strong></span>}
+                  {h.returnedFrom&&<span>From: <strong style={{color:T.slate}}>{h.returnedFrom}</strong></span>}
+                  {h.accessories&&<span>Items: <strong style={{color:T.slate}}>{h.accessories}</strong></span>}
+                </div>
+                {h.notes&&<div style={{ fontSize:12,color:"#64748b",marginTop:5,fontStyle:"italic" }}>{h.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ borderTop:`1.5px solid ${T.border}`,paddingTop:14,
+        display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10 }}>
+        {!confirmDelete ? (
+          <Btn variant="danger" sm onClick={()=>setConfirmDelete(true)}>Delete Asset</Btn>
+        ) : (
+          <div style={{ display:"flex",alignItems:"center",gap:10,background:"#fef2f2",
+            border:"1.5px solid #fca5a5",borderRadius:8,padding:"8px 14px",flexWrap:"wrap",gap:8 }}>
+            <span style={{ fontSize:13,fontWeight:600,color:"#dc2626" }}>
+              Delete {asset.tag}? This cannot be undone.
+            </span>
+            <div style={{ display:"flex",gap:6 }}>
+              <Btn variant="secondary" sm onClick={()=>setConfirmDelete(false)}>Cancel</Btn>
+              <Btn variant="danger" sm onClick={onDelete}>Yes, Delete</Btn>
+            </div>
+          </div>
+        )}
+        <span style={{ fontSize:11,color:"#94a3b8" }}>Added {fmtDate(asset.createdAt)}</span>
+      </div>
+      {lightbox&&<Lightbox photo={lightbox} onClose={()=>setLightbox(null)} />}
+    </div>
+  );
+}
+
+// ── QR Scanner ───────────────────────────────────────────────────────────────
+function QRLookup({ assets, onSelect }) {
+  const [val,setVal]         = useState("");
+  const [res,setRes]         = useState(null);
+  const [scanning,setScanning] = useState(false);
+  const [camErr,setCamErr]   = useState("");
+  const [jsQRLib,setJsQRLib] = useState(null);
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const rafRef    = useRef(null);
+  const streamRef = useRef(null);
+
+  // Lazy-load jsQR for fallback
+  useEffect(()=>{
+    if(scanning && !jsQRLib){
+      const s=document.createElement("script");
+      s.src="/jsqr.min.js";
+      s.onload=()=>setJsQRLib(()=>window.jsQR);
+      document.head.appendChild(s);
+    }
+  },[scanning]);
+
+  const doLookup = useCallback((raw)=>{
+    const q=raw.trim();
+    if(!q) return;
+    setVal(q);
+    setRes(assets.find(a=>a.qrCode===q||a.tag.toLowerCase()===q.toLowerCase())||false);
+  },[assets]);
+
+  const stopCamera = useCallback(()=>{
+    cancelAnimationFrame(rafRef.current);
+    if(streamRef.current) streamRef.current.getTracks().forEach(t=>t.stop());
+    streamRef.current=null;
+    setScanning(false);
+  },[]);
+
+  const startCamera = useCallback(async()=>{
+    setCamErr(""); setRes(null); setVal("");
+    setScanning(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:"environment", width:{ideal:1280}, height:{ideal:720} }
+      });
+      streamRef.current=stream;
+      await new Promise(r=>setTimeout(r,100));
+      if(videoRef.current){
+        videoRef.current.srcObject=stream;
+        await videoRef.current.play();
+      }
+    } catch(e){
+      setCamErr("Camera access denied or unavailable. Please type the QR value manually.");
+      setScanning(false);
+    }
+  },[]);
+
+  // Scan loop
+  useEffect(()=>{
+    if(!scanning) return;
+    const tick=()=>{
+      const video=videoRef.current;
+      const canvas=canvasRef.current;
+      if(!video||!canvas||video.readyState<2){ rafRef.current=requestAnimationFrame(tick); return; }
+      canvas.width=video.videoWidth;
+      canvas.height=video.videoHeight;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(video,0,0);
+      // Try BarcodeDetector first (Chrome/Android)
+      if(window.BarcodeDetector){
+        new window.BarcodeDetector({formats:["qr_code"]}).detect(canvas)
+          .then(codes=>{ if(codes.length){ stopCamera(); doLookup(codes[0].rawValue); } })
+          .catch(()=>{});
+      } else if(window.jsQR){
+        // jsQR fallback
+        const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+        const code=window.jsQR(img.data,img.width,img.height,{inversionAttempts:"attemptBoth"});
+        if(code){ stopCamera(); doLookup(code.data); return; }
+      }
+      rafRef.current=requestAnimationFrame(tick);
+    };
+    rafRef.current=requestAnimationFrame(tick);
+    return ()=>cancelAnimationFrame(rafRef.current);
+  },[scanning,jsQRLib,doLookup,stopCamera]);
+
+  useEffect(()=>()=>stopCamera(),[]);
+
+  return (
+    <div style={{ background:T.amberL,border:`1.5px solid #fcd34d`,borderRadius:10,
+      padding:"14px 18px",display:"flex",flexDirection:"column",gap:12 }}>
+      <div style={{ fontSize:12,fontWeight:700,color:T.amberD,letterSpacing:.5 }}>▣ QR / TAG LOOKUP</div>
+
+      {/* Camera viewfinder */}
+      {scanning && (
+        <div style={{ position:"relative",borderRadius:8,overflow:"hidden",background:"#000",
+          border:`2px solid ${T.amber}` }}>
+          <video ref={videoRef} muted playsInline
+            style={{ width:"100%",maxHeight:240,objectFit:"cover",display:"block" }} />
+          <canvas ref={canvasRef} style={{ display:"none" }} />
+          {/* Targeting overlay */}
+          <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none" }}>
+            <div style={{ width:160,height:160,border:"2px solid rgba(245,158,11,.8)",borderRadius:12,
+              boxShadow:"0 0 0 9999px rgba(0,0,0,.35)" }}>
+              {/* Corner marks */}
+              {[["0","0"],["0","auto"],["auto","0"],["auto","auto"]].map(([t,b],i)=>(
+                <div key={i} style={{ position:"absolute",
+                  top:t==="0"?-2:"auto", bottom:b==="auto"?"auto":-2,
+                  left:i%2===0?-2:"auto", right:i%2===0?"auto":-2,
+                  width:16,height:16,
+                  borderTop:   (i<2)  ?`3px solid ${T.amber}`:"none",
+                  borderBottom:(i>=2) ?`3px solid ${T.amber}`:"none",
+                  borderLeft:  (i%2===0)?`3px solid ${T.amber}`:"none",
+                  borderRight: (i%2!==0)?`3px solid ${T.amber}`:"none",
+                }} />
+              ))}
+            </div>
+          </div>
+          <div style={{ position:"absolute",bottom:8,left:0,right:0,textAlign:"center",
+            fontSize:12,color:"rgba(255,255,255,.85)",fontWeight:600 }}>
+            Point camera at QR code
+          </div>
+          <button onClick={stopCamera} style={{ position:"absolute",top:8,right:8,
+            background:"rgba(0,0,0,.55)",border:"none",borderRadius:"50%",width:28,height:28,
+            color:"#fff",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
+        </div>
+      )}
+
+      {/* Manual input row */}
+      <div style={{ display:"flex",gap:8 }}>
+        <input value={val} onChange={e=>setVal(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&doLookup(val)}
+          placeholder="Type tag or QR value… (e.g. MBS-1001)"
+          style={{ ...iBase,flex:1 }} />
+        {!scanning
+          ? <Btn variant="amber_out" onClick={startCamera}>📷 Scan</Btn>
+          : <Btn variant="secondary" onClick={stopCamera}>Stop</Btn>
+        }
+        <Btn variant="primary" onClick={()=>doLookup(val)}>Look Up</Btn>
+      </div>
+
+      {camErr&&<div style={{ fontSize:12,color:"#b45309",background:"#fffbeb",
+        border:"1px solid #fcd34d",borderRadius:6,padding:"8px 12px" }}>{camErr}</div>}
+
+      {res===false&&<div style={{ fontSize:12,color:"#dc2626",fontWeight:600 }}>
+        No asset found for "{val}" — may not be registered yet.
+      </div>}
+
+      {res&&(
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",
+          background:T.white,border:"1.5px solid #86efac",borderRadius:7,
+          padding:"10px 14px",flexWrap:"wrap",gap:8 }}>
+          <div>
+            <span style={{ fontFamily:T.mono,fontWeight:700,color:T.slate,fontSize:13 }}>{res.tag}</span>
+            <span style={{ color:T.slate,marginLeft:10,fontSize:13 }}>
+              {res.name||[res.make,res.model].filter(Boolean).join(" ")||"Unnamed"}
+            </span>
+          </div>
+          <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+            <Badge status={res.status} />
+            <Btn variant="primary" sm onClick={()=>onSelect(res)}>Open →</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Consumables Tab ───────────────────────────────────────────────────────────
+function ConsumablesTab() {
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editId, setEditId]     = useState(null);   // inline edit
+  const [addOpen, setAddOpen]   = useState(false);
+  const [newName, setNewName]   = useState("");
+  const [newLow, setNewLow]     = useState(2);
+  const [nextId, setNextId]     = useState(200);
+  const [confirmDel, setConfirmDel] = useState(null);
+
+  useEffect(()=>{
+    (async()=>{
+      const data = await loadConsumables();
+      setItems(data);
+      const maxId = data.reduce((m,i)=>Math.max(m,i.id),199);
+      setNextId(maxId+1);
+      setLoading(false);
+    })();
+  },[]);
+
+  const persist = async (next) => { setItems(next); await saveConsumables(next); };
+
+  const adjust = async (id, delta) => {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    const newQty = Math.max(0, item.qty + delta);
+    setItems(prev => prev.map(i => String(i.id) === String(id) ? {...i, qty:newQty} : i));
+    try {
+      await window.api.put('/api/consumables/' + id, { name:item.name, quantity:newQty, low_at:item.lowAt, notes:item.notes||"" });
+    } catch(e) {
+      setItems(prev => prev.map(i => String(i.id) === String(id) ? {...i, qty:item.qty} : i));
+    }
+  };
+
+  const updateField = async (id, field, val) => {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    const updated = {...item, [field]:val};
+    setItems(prev => prev.map(i => String(i.id) === String(id) ? updated : i));
+    try {
+      await window.api.put('/api/consumables/' + id, { name:updated.name, quantity:updated.qty, low_at:updated.lowAt, notes:updated.notes||"" });
+    } catch {}
+  };
+
+  const addItem = async () => {
+    if (!newName.trim()) return;
+    try {
+      await window.api.post('/api/consumables', {
+        name: newName.trim(), quantity: 0, low_at: Math.max(0, parseInt(newLow)||0), notes: ""
+      });
+      const fresh = await window.api.get('/api/consumables');
+      setItems(fresh.map(i => ({ id: i.id, name: i.name, qty: i.quantity, lowAt: i.low_at, notes: i.notes||"" })));
+      setNewName(""); setNewLow(2); setAddOpen(false);
+    } catch(e) { alert("Failed to add item: " + e.message); }
+  };
+
+  const deleteItem = async (id) => {
+    try {
+      await window.api.del('/api/consumables/' + id);
+      setItems(prev => prev.filter(i => String(i.id) !== String(id)));
+      setConfirmDel(null);
+    } catch(e) { alert("Failed to delete: " + e.message); }
+  };
+
+  if (loading) return <div style={{ textAlign:"center",color:"#94a3b8",padding:60 }}>Loading…</div>;
+
+  const lowCount = items.filter(i=>i.qty<=i.lowAt&&i.lowAt>0).length;
+  const totalQty  = items.reduce((s,i)=>s+i.qty, 0);
+
+  return (
+    <div style={{ padding:"20px 28px" }}>
+
+      {/* Summary bar */}
+      <div style={{ display:"flex",gap:16,marginBottom:20,flexWrap:"wrap",alignItems:"center" }}>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total Items Tracked</div>
+          <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{items.length}</div>
+        </div>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total Units in Stock</div>
+          <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{totalQty}</div>
+        </div>
+        {lowCount>0&&(
+          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+            padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+            <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Low Stock</div>
+            <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{lowCount}</div>
+          </div>
+        )}
+        <div style={{ marginLeft:"auto" }}>
+          <Btn variant="primary" onClick={()=>setAddOpen(v=>!v)}>+ Add Item</Btn>
+        </div>
+      </div>
+
+      {/* Add item form */}
+      {addOpen&&(
+        <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"16px 20px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end" }}>
+          <div style={{ flex:2,minWidth:200 }}>
+            <FWrap label="Item Name">
+              <input value={newName} onChange={e=>setNewName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&addItem()}
+                placeholder="e.g. USB-C to USB-A Adapters"
+                style={{...iBase}} autoFocus />
+            </FWrap>
+          </div>
+          <div style={{ width:130 }}>
+            <FWrap label="Low Stock Alert At">
+              <input type="number" min="0" value={newLow} onChange={e=>setNewLow(e.target.value)}
+                style={{...iBase}} />
+            </FWrap>
+          </div>
+          <div style={{ display:"flex",gap:8 }}>
+            <Btn variant="secondary" onClick={()=>{ setAddOpen(false); setNewName(""); setNewLow(2); }}>Cancel</Btn>
+            <Btn variant="primary" onClick={addItem} style={{ opacity:newName.trim()?1:.4 }}>Add</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,overflow:"hidden",
+        boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+        <table style={{ width:"100%",borderCollapse:"collapse" }}>
+          <thead>
+            <tr style={{ background:T.bg,borderBottom:`1.5px solid ${T.border}` }}>
+              {["Item / Description","Quantity","Low Stock Alert","Notes",""].map(h=>(
+                <th key={h} style={{ textAlign:h==="Quantity"?"center":"left",padding:"9px 16px",fontSize:11,
+                  fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase",
+                  whiteSpace:"nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item,i)=>{
+              const isLow = item.lowAt>0 && item.qty<=item.lowAt;
+              const isEditing = editId===item.id;
+              return (
+                <tr key={item.id}
+                  style={{ borderBottom:i<items.length-1?`1px solid ${T.border}`:"none",
+                    background:isLow?"#fffdf4":"transparent",transition:"background .1s" }}>
+
+                  {/* Name */}
+                  <td style={{ padding:"12px 16px",fontSize:14,fontWeight:600,color:T.slate }}>
+                    {isEditing ? (
+                      <input value={item.name}
+                        onChange={e=>updateField(item.id,"name",e.target.value)}
+                        style={{...iBase,fontSize:14,fontWeight:600,width:"100%"}} />
+                    ) : (
+                      <span style={{ display:"flex",alignItems:"center",gap:8 }}>
+                        {item.name}
+                        {isLow&&<span style={{ fontSize:10,fontWeight:700,color:"#b45309",background:"#fef3c7",
+                          border:"1px solid #fcd34d",borderRadius:20,padding:"1px 7px" }}>⚠ Low</span>}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Quantity stepper */}
+                  <td style={{ padding:"12px 16px",textAlign:"center" }}>
+                    <div style={{ display:"inline-flex",alignItems:"center",gap:0,
+                      border:`1.5px solid ${isLow?"#fcd34d":T.border}`,borderRadius:8,overflow:"hidden" }}>
+                      <button onClick={()=>adjust(item.id,-1)}
+                        disabled={item.qty===0}
+                        style={{ background:item.qty===0?"#f8fafc":T.white,border:"none",
+                          width:34,height:34,fontSize:18,fontWeight:700,cursor:item.qty===0?"default":"pointer",
+                          color:item.qty===0?"#d1d5db":"#dc2626",transition:"background .1s",
+                          display:"flex",alignItems:"center",justifyContent:"center" }}>−</button>
+                      <div style={{ minWidth:46,textAlign:"center",fontSize:18,fontWeight:700,
+                        fontFamily:T.mono,color:isLow?"#b45309":T.slate,
+                        padding:"0 4px",background:isLow?"#fef3c7":T.white,lineHeight:"34px" }}>
+                        {item.qty}
+                      </div>
+                      <button onClick={()=>adjust(item.id,+1)}
+                        style={{ background:T.white,border:"none",width:34,height:34,
+                          fontSize:18,fontWeight:700,cursor:"pointer",color:"#15803d",
+                          transition:"background .1s",display:"flex",alignItems:"center",justifyContent:"center" }}>+</button>
+                    </div>
+                  </td>
+
+                  {/* Low-at threshold */}
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? (
+                      <input type="number" min="0" value={item.lowAt}
+                        onChange={e=>updateField(item.id,"lowAt",parseInt(e.target.value)||0)}
+                        style={{...iBase,width:80,textAlign:"center"}} />
+                    ) : (
+                      <span style={{ fontSize:13,color:T.muted }}>
+                        {item.lowAt>0 ? `Alert at ${item.lowAt}` : <span style={{color:"#d1d5db"}}>—</span>}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Notes */}
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? (
+                      <input value={item.notes}
+                        onChange={e=>updateField(item.id,"notes",e.target.value)}
+                        placeholder="Location, brand, specs…"
+                        style={{...iBase,fontSize:13}} />
+                    ) : (
+                      <span style={{ fontSize:13,color:item.notes?T.muted:"#d1d5db",fontStyle:item.notes?"normal":"italic" }}>
+                        {item.notes||"—"}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Actions */}
+                  <td style={{ padding:"12px 16px",whiteSpace:"nowrap" }}>
+                    <div style={{ display:"flex",gap:6,justifyContent:"flex-end" }}>
+                      <Btn variant="secondary" sm onClick={()=>setEditId(isEditing?null:item.id)}>
+                        {isEditing?"✓ Done":"Edit"}
+                      </Btn>
+                      {confirmDel===item.id ? (
+                        <>
+                          <Btn variant="danger" sm onClick={()=>deleteItem(item.id)}>Delete</Btn>
+                          <Btn variant="secondary" sm onClick={()=>setConfirmDel(null)}>Cancel</Btn>
+                        </>
+                      ) : (
+                        <Btn variant="danger" sm onClick={()=>setConfirmDel(item.id)}>✕</Btn>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div style={{ padding:"9px 16px",borderTop:`1px solid ${T.border}`,
+          fontSize:12,color:"#94a3b8",display:"flex",justifyContent:"space-between" }}>
+          <span>{items.length} item type{items.length!==1?"s":""} tracked</span>
+          {lowCount>0&&<span style={{ color:"#b45309",fontWeight:600 }}>⚠ {lowCount} item{lowCount!==1?"s":""} at or below low-stock threshold</span>}
+        </div>
+      </div>
+
+      <div style={{ marginTop:12,fontSize:11,color:"#94a3b8" }}>
+        Consumables are tracked by count only — no asset tags or custom labels required.
+        Click <strong>Edit</strong> on any row to rename, adjust the low-stock alert level, or add notes.
+      </div>
+    </div>
+  );
+}
+
+// ── Shirts Tab ───────────────────────────────────────────────────────────────
+const SHIRT_SIZES  = ["S","M","L","XL","2XL","3XL"];
+const SHIRT_LOW_AT = 6;
+const SHIRT_COLORS = [
+  { key:"Tan",        label:"Tan",        badge:"#d97706", bg:"#fef3c7", border:"#fcd34d", text:"#92400e" },
+  { key:"Grey",       label:"Grey",       badge:"#475569", bg:"#f1f5f9", border:"#cbd5e1", text:"#1e293b" },
+  { key:"Tan Henley", label:"Tan Henley", badge:"#b45309", bg:"#fff7ed", border:"#fed7aa", text:"#7c2d12" },
+];
+
+function ShirtsTab() {
+  const [shirts, setShirts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const data = await window.api.get('/api/shirts');
+        setShirts(data);
+      } catch { setShirts([]); }
+      setLoading(false);
+    })();
+  },[]);
+
+  const adjust = async (id, delta) => {
+    const shirt = shirts.find(s=>s.id===id);
+    if (!shirt) return;
+    const newQty = Math.max(0, shirt.quantity + delta);
+    setShirts(prev => prev.map(s => s.id===id ? {...s, quantity: newQty} : s));
+    try {
+      await window.api.put('/api/shirts/'+id, { quantity: newQty });
+    } catch { /* revert on error */ const data = await window.api.get('/api/shirts'); setShirts(data); }
+  };
+
+  const totalByColor = (color) => shirts.filter(s=>s.color===color).reduce((n,s)=>n+s.quantity,0);
+  const grandTotal   = shirts.reduce((n,s)=>n+s.quantity,0);
+  const lowStockCount = shirts.filter(s=>s.quantity<SHIRT_LOW_AT).length;
+
+  if (loading) return <div style={{ textAlign:"center",color:"#94a3b8",padding:60 }}>Loading…</div>;
+
+  return (
+    <div style={{ padding:"24px 28px" }}>
+      {/* Header */}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:18,fontWeight:700,color:T.slate }}>👕 Field Shirts Inventory</div>
+          <div style={{ fontSize:12,color:T.muted,marginTop:3 }}>
+            Track shirt counts by color and size. Total in stock: <strong style={{color:T.slate}}>{grandTotal}</strong>
+          </div>
+        </div>
+        <div style={{ display:"flex",gap:10 }}>
+          {SHIRT_COLORS.map(c=>(
+            <div key={c.key} style={{ background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:8,
+              padding:"8px 16px",textAlign:"center" }}>
+              <div style={{ fontSize:10,fontWeight:700,color:c.text,letterSpacing:.7,textTransform:"uppercase" }}>{c.label}</div>
+              <div style={{ fontSize:22,fontWeight:700,color:c.badge,fontFamily:T.mono }}>{totalByColor(c.key)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Stat cards */}
+      <div style={{ display:"flex",gap:16,marginBottom:20,flexWrap:"wrap" }}>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total In Stock</div>
+          <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{grandTotal}</div>
+        </div>
+        {SHIRT_COLORS.map(c=>(
+          <div key={c.key} style={{ background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:10,
+            padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:110 }}>
+            <div style={{ fontSize:10,fontWeight:700,color:c.text,letterSpacing:.7,textTransform:"uppercase" }}>{c.label}</div>
+            <div style={{ fontSize:28,fontWeight:700,color:c.badge,fontFamily:T.mono }}>{totalByColor(c.key)}</div>
+          </div>
+        ))}
+        {lowStockCount>0&&(
+          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+            padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+            <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Low Stock</div>
+            <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{lowStockCount}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Grid */}
+      <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,overflow:"hidden",
+        boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+        <table style={{ width:"100%",borderCollapse:"collapse" }}>
+          <thead>
+            <tr style={{ background:T.bg,borderBottom:`1.5px solid ${T.border}` }}>
+              <th style={{ textAlign:"left",padding:"10px 20px",fontSize:11,fontWeight:700,
+                color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase",width:120 }}>Color</th>
+              {SHIRT_SIZES.map(sz=>(
+                <th key={sz} style={{ textAlign:"center",padding:"10px 16px",fontSize:11,fontWeight:700,
+                  color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>{sz}</th>
+              ))}
+              <th style={{ textAlign:"center",padding:"10px 16px",fontSize:11,fontWeight:700,
+                color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {SHIRT_COLORS.map((c,ci)=>{
+              const rowShirts = SHIRT_SIZES.map(sz => shirts.find(s=>s.color===c.key&&s.size===sz));
+              const rowTotal  = rowShirts.reduce((n,s)=>n+(s?.quantity||0),0);
+              return (
+                <tr key={c.key} style={{ borderBottom:ci<SHIRT_COLORS.length-1?`1px solid ${T.border}`:"none" }}>
+                  {/* Color label */}
+                  <td style={{ padding:"16px 20px" }}>
+                    <span style={{ display:"inline-flex",alignItems:"center",gap:8,
+                      background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:20,
+                      padding:"4px 12px",fontSize:13,fontWeight:700,color:c.text }}>
+                      <span style={{ width:10,height:10,borderRadius:"50%",background:c.badge,flexShrink:0 }}/>
+                      {c.label}
+                    </span>
+                  </td>
+
+                  {/* Size steppers */}
+                  {rowShirts.map((shirt,si)=>(
+                    <td key={SHIRT_SIZES[si]} style={{ padding:"16px 12px",textAlign:"center" }}>
+                      {shirt ? (
+                        <div style={{ display:"inline-flex",alignItems:"center",gap:0,
+                          border:`1.5px solid ${shirt.quantity===0?"#fca5a5":shirt.quantity<SHIRT_LOW_AT?"#fcd34d":c.border}`,
+                          borderRadius:8,overflow:"hidden" }}>
+                          <button onClick={()=>adjust(shirt.id,-1)} disabled={shirt.quantity===0}
+                            style={{ background:shirt.quantity===0?"#f8fafc":T.white,border:"none",
+                              width:32,height:36,fontSize:16,fontWeight:700,
+                              cursor:shirt.quantity===0?"default":"pointer",
+                              color:shirt.quantity===0?"#d1d5db":"#dc2626",
+                              display:"flex",alignItems:"center",justifyContent:"center" }}>−</button>
+                          <div style={{ minWidth:40,textAlign:"center",fontSize:17,fontWeight:700,
+                            fontFamily:T.mono,color:shirt.quantity===0?"#dc2626":shirt.quantity<SHIRT_LOW_AT?"#b45309":c.badge,
+                            padding:"0 4px",background:shirt.quantity===0?"#fef2f2":shirt.quantity<SHIRT_LOW_AT?"#fffbeb":c.bg,lineHeight:"36px" }}>
+                            {shirt.quantity}
+                          </div>
+                          <button onClick={()=>adjust(shirt.id,+1)}
+                            style={{ background:T.white,border:"none",width:32,height:36,
+                              fontSize:16,fontWeight:700,cursor:"pointer",color:"#15803d",
+                              display:"flex",alignItems:"center",justifyContent:"center" }}>+</button>
+                        </div>
+                      ) : <span style={{color:"#d1d5db"}}>—</span>}
+                    </td>
+                  ))}
+
+                  {/* Row total */}
+                  <td style={{ padding:"16px 16px",textAlign:"center" }}>
+                    <span style={{ fontSize:16,fontWeight:700,fontFamily:T.mono,color:c.badge }}>{rowTotal}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {/* Grand total footer */}
+          <tfoot>
+            <tr style={{ background:T.bg,borderTop:`1.5px solid ${T.border}` }}>
+              <td style={{ padding:"10px 20px",fontSize:12,fontWeight:700,color:T.muted,
+                textTransform:"uppercase",letterSpacing:.6 }}>Total</td>
+              {SHIRT_SIZES.map(sz=>{
+                const sizeTotal = SHIRT_COLORS.reduce((n,c)=>{
+                  const s = shirts.find(sh=>sh.color===c.key&&sh.size===sz);
+                  return n+(s?.quantity||0);
+                },0);
+                return (
+                  <td key={sz} style={{ padding:"10px 16px",textAlign:"center",
+                    fontSize:14,fontWeight:700,fontFamily:T.mono,color:T.slate }}>{sizeTotal}</td>
+                );
+              })}
+              <td style={{ padding:"10px 16px",textAlign:"center",
+                fontSize:16,fontWeight:700,fontFamily:T.mono,color:T.slate }}>{grandTotal}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div style={{ marginTop:12,fontSize:11,color:"#94a3b8" }}>
+        Tan shirts are for Field crew · Grey shirts are for DG crew. Click +/− to update counts.
+      </div>
+    </div>
+  );
+}
+
+// ── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  const handleLogin = async () => {
+    if (!username || !password) { setError("Please enter username and password."); return; }
+    setLoading(true); setError("");
+    try {
+      const res = await fetch(window.API_BASE + '/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.token) { setError(data.error || "Invalid credentials."); setLoading(false); return; }
+      window.api.setToken(data.token);
+      onLogin(data.user, data.token);
+    } catch {
+      setError("Cannot connect to server. Check network or try again.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center",
+      justifyContent:"center", fontFamily:T.font }}>
+      <div style={{ background:T.white, border:`1.5px solid ${T.border}`, borderRadius:16,
+        padding:"40px 44px", width:"100%", maxWidth:420, boxShadow:"0 24px 64px rgba(0,0,0,.10)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:32 }}>
+          <div style={{ width:42, height:42, background:T.amber, borderRadius:10, fontSize:22,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            boxShadow:`0 2px 8px ${T.amber}55` }}>☀</div>
+          <div>
+            <div style={{ fontSize:17, fontWeight:700, color:T.slate }}>Miller Bros Solar</div>
+            <div style={{ fontSize:11, color:T.muted, letterSpacing:.8, textTransform:"uppercase" }}>IT Asset Management</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize:20, fontWeight:700, color:T.slate, marginBottom:6 }}>Sign In</div>
+        <div style={{ fontSize:13, color:T.muted, marginBottom:24 }}>Enter your credentials to access the system.</div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <TInput label="Username" value={username} onChange={e=>setUsername(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()} autoFocus />
+          <div>
+            <FWrap label="Password">
+              <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                style={{...iBase}} />
+            </FWrap>
+          </div>
+          {error && (
+            <div style={{ background:"#fef2f2", border:"1.5px solid #fca5a5", borderRadius:7,
+              padding:"10px 14px", fontSize:13, color:"#dc2626", fontWeight:500 }}>{error}</div>
+          )}
+          <button onClick={handleLogin} disabled={loading}
+            style={{ background:T.amber, color:"#fff", border:"none", borderRadius:8,
+              padding:"11px 0", fontSize:15, fontWeight:700, cursor:loading?"wait":"pointer",
+              fontFamily:T.font, opacity:loading?.7:1, boxShadow:`0 2px 8px ${T.amber}55`,
+              transition:"opacity .15s" }}>
+            {loading ? "Signing in…" : "Sign In"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ─────────────────────────────────────────────────────────────────
+// ── Field Tools Tab ──────────────────────────────────────────────────────────
+const TOOL_CATEGORIES = ["Power Tools","Hand Tools","Ladders & Access","Safety / PPE","Meters & Testers","Misc"];
+
+function ToolsTab() {
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editId, setEditId]     = useState(null);
+  const [addOpen, setAddOpen]   = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [fCat, setFCat]         = useState("All");
+  const [nf, setNf]             = useState({ name:"", category:TOOL_CATEGORIES[0], tool_tag:"", condition:"Good", status:"In Storage", assigned_to:"", notes:"" });
+
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const data = await window.api.get('/api/tools');
+        setItems(data);
+      } catch { setItems([]); }
+      setLoading(false);
+    })();
+  },[]);
+
+  const updateField = async (id, field, val) => {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    const updated = {...item, [field]:val};
+    setItems(prev => prev.map(i => String(i.id) === String(id) ? updated : i));
+    try {
+      await window.api.put('/api/tools/' + id, {
+        tool_tag:updated.tool_tag, name:updated.name, category:updated.category,
+        condition:updated.condition, status:updated.status, assigned_to:updated.assigned_to, notes:updated.notes||""
+      });
+    } catch {}
+  };
+
+  const addItem = async () => {
+    if (!nf.name.trim()) return;
+    try {
+      await window.api.post('/api/tools', { ...nf, name:nf.name.trim() });
+      const fresh = await window.api.get('/api/tools');
+      setItems(fresh);
+      setNf({ name:"", category:TOOL_CATEGORIES[0], tool_tag:"", condition:"Good", status:"In Storage", assigned_to:"", notes:"" });
+      setAddOpen(false);
+    } catch(e) { alert("Failed to add tool: " + e.message); }
+  };
+
+  const deleteItem = async (id) => {
+    try {
+      await window.api.del('/api/tools/' + id);
+      setItems(prev => prev.filter(i => String(i.id) !== String(id)));
+      setConfirmDel(null);
+    } catch(e) { alert("Failed to delete: " + e.message); }
+  };
+
+  if (loading) return <div style={{ textAlign:"center",color:"#94a3b8",padding:60 }}>Loading…</div>;
+
+  const shown = fCat==="All" ? items : items.filter(i=>i.category===fCat);
+  const catCounts = TOOL_CATEGORIES.map(c=>[c, items.filter(i=>i.category===c).length]);
+
+  return (
+    <div style={{ padding:"20px 28px" }}>
+
+      {/* Summary bar */}
+      <div style={{ display:"flex",gap:16,marginBottom:20,flexWrap:"wrap",alignItems:"center" }}>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total Tools</div>
+          <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{items.length}</div>
+        </div>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Loaned Out</div>
+          <div style={{ fontSize:28,fontWeight:700,color:"#6d28d9",fontFamily:T.mono }}>{items.filter(i=>i.status==="Loaned Out").length}</div>
+        </div>
+        <div style={{ marginLeft:"auto" }}>
+          <Btn variant="primary" onClick={()=>setAddOpen(v=>!v)}>+ Add Tool</Btn>
+        </div>
+      </div>
+
+      {/* Category filter */}
+      <div style={{ display:"flex",gap:8,marginBottom:16,flexWrap:"wrap" }}>
+        {[["All",items.length],...catCounts].map(([c,n])=>(
+          <button key={c} onClick={()=>setFCat(c)}
+            style={{ background:fCat===c?T.amberL:T.white,border:`1.5px solid ${fCat===c?T.amber:T.border}`,
+              borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:fCat===c?700:500,
+              color:fCat===c?T.amberD:T.muted,cursor:"pointer",fontFamily:T.font }}>
+            {c} <span style={{ opacity:.6 }}>({n})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Add form */}
+      {addOpen&&(
+        <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"16px 20px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end" }}>
+          <div style={{ flex:2,minWidth:180 }}>
+            <FWrap label="Tool Name"><input value={nf.name} onChange={e=>setNf({...nf,name:e.target.value})}
+              onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="e.g. DeWalt 20V Impact Driver" style={{...iBase}} autoFocus /></FWrap>
+          </div>
+          <div style={{ width:150 }}>
+            <FWrap label="Category"><select value={nf.category} onChange={e=>setNf({...nf,category:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+              {TOOL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select></FWrap>
+          </div>
+          <div style={{ width:120 }}>
+            <FWrap label="Tag / ID"><input value={nf.tool_tag} onChange={e=>setNf({...nf,tool_tag:e.target.value})} placeholder="optional" style={{...iBase}} /></FWrap>
+          </div>
+          <div style={{ width:130 }}>
+            <FWrap label="Condition"><select value={nf.condition} onChange={e=>setNf({...nf,condition:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+              {CONDITIONS.map(c=><option key={c} value={c}>{c}</option>)}</select></FWrap>
+          </div>
+          <div style={{ width:150 }}>
+            <FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+              {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></FWrap>
+          </div>
+          <div style={{ display:"flex",gap:8 }}>
+            <Btn variant="secondary" onClick={()=>setAddOpen(false)}>Cancel</Btn>
+            <Btn variant="primary" onClick={addItem} style={{ opacity:nf.name.trim()?1:.4 }}>Add</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,overflow:"hidden",
+        boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+        <table style={{ width:"100%",borderCollapse:"collapse" }}>
+          <thead>
+            <tr style={{ background:T.bg,borderBottom:`1.5px solid ${T.border}` }}>
+              {["Tool / Description","Category","Tag","Condition","Status","Assigned To","Notes",""].map(h=>(
+                <th key={h} style={{ textAlign:"left",padding:"9px 16px",fontSize:11,
+                  fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase",whiteSpace:"nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((item,i)=>{
+              const isEditing = editId===item.id;
+              return (
+                <tr key={item.id} style={{ borderBottom:i<shown.length-1?`1px solid ${T.border}`:"none" }}>
+                  <td style={{ padding:"12px 16px",fontSize:14,fontWeight:600,color:T.slate }}>
+                    {isEditing ? <input value={item.name} onChange={e=>updateField(item.id,"name",e.target.value)} style={{...iBase,fontSize:14,fontWeight:600}} /> : item.name}
+                  </td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? (
+                      <select value={item.category||""} onChange={e=>updateField(item.id,"category",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                        {TOOL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                    ) : <span style={{ fontSize:13,color:T.muted }}>{item.category||"—"}</span>}
+                  </td>
+                  <td style={{ padding:"12px 16px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
+                    {isEditing ? <input value={item.tool_tag||""} onChange={e=>updateField(item.id,"tool_tag",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.tool_tag||"—")}
+                  </td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? (
+                      <select value={item.condition||""} onChange={e=>updateField(item.id,"condition",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                        {CONDITIONS.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                    ) : (item.condition ? <CondPill condition={item.condition} /> : <span style={{color:"#d1d5db"}}>—</span>)}
+                  </td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? (
+                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                        {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                    ) : <Badge status={item.status} />}
+                  </td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                      <span style={{ fontSize:13,color:item.assigned_to?T.slate:"#d1d5db" }}>{item.assigned_to||"—"}</span>}
+                  </td>
+                  <td style={{ padding:"12px 16px" }}>
+                    {isEditing ? <input value={item.notes||""} onChange={e=>updateField(item.id,"notes",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                      <span style={{ fontSize:13,color:item.notes?T.muted:"#d1d5db",fontStyle:item.notes?"normal":"italic" }}>{item.notes||"—"}</span>}
+                  </td>
+                  <td style={{ padding:"12px 16px",whiteSpace:"nowrap" }}>
+                    <div style={{ display:"flex",gap:6,justifyContent:"flex-end" }}>
+                      <Btn variant="secondary" sm onClick={()=>setEditId(isEditing?null:item.id)}>{isEditing?"✓ Done":"Edit"}</Btn>
+                      {confirmDel===item.id ? (
+                        <>
+                          <Btn variant="danger" sm onClick={()=>deleteItem(item.id)}>Delete</Btn>
+                          <Btn variant="secondary" sm onClick={()=>setConfirmDel(null)}>Cancel</Btn>
+                        </>
+                      ) : <Btn variant="danger" sm onClick={()=>setConfirmDel(item.id)}>✕</Btn>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {shown.length===0&&<tr><td colSpan={8} style={{ padding:"40px",textAlign:"center",color:"#94a3b8",fontSize:13 }}>No tools yet. Click <strong>+ Add Tool</strong> to get started.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop:12,fontSize:11,color:"#94a3b8" }}>
+        Default categories shown — these can be adjusted once the field manager finalizes the tool list.
+      </div>
+    </div>
+  );
+}
+
+// ── Field Trucks Tab ─────────────────────────────────────────────────────────
+const TRUCK_STATUSES = ["In Service","In Storage","Awaiting Repair","Decommissioned"];
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr); if (isNaN(d)) return null;
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
+function TrucksTab() {
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [editId, setEditId]     = useState(null);
+  const [addOpen, setAddOpen]   = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const blank = { truck_tag:"", year:"", make_model:"", plate:"", status:"In Service", assigned_to:"", mileage:"", last_service:"", next_service:"", notes:"" };
+  const [nf, setNf] = useState(blank);
+
+  useEffect(()=>{
+    (async()=>{
+      try { setItems(await window.api.get('/api/trucks')); } catch { setItems([]); }
+      setLoading(false);
+    })();
+  },[]);
+
+  const updateField = async (id, field, val) => {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    const updated = {...item, [field]:val};
+    setItems(prev => prev.map(i => String(i.id) === String(id) ? updated : i));
+    try {
+      await window.api.put('/api/trucks/' + id, {
+        truck_tag:updated.truck_tag, year:updated.year, make_model:updated.make_model, plate:updated.plate,
+        status:updated.status, assigned_to:updated.assigned_to, mileage:updated.mileage,
+        last_service:updated.last_service||null, next_service:updated.next_service||null, notes:updated.notes||""
+      });
+    } catch {}
+  };
+
+  const addItem = async () => {
+    if (!nf.truck_tag.trim() && !nf.make_model.trim()) return;
+    try {
+      await window.api.post('/api/trucks', { ...nf, last_service:nf.last_service||null, next_service:nf.next_service||null });
+      setItems(await window.api.get('/api/trucks'));
+      setNf(blank); setAddOpen(false);
+    } catch(e) { alert("Failed to add truck: " + e.message); }
+  };
+
+  const deleteItem = async (id) => {
+    try {
+      await window.api.del('/api/trucks/' + id);
+      setItems(prev => prev.filter(i => String(i.id) !== String(id)));
+      setConfirmDel(null);
+    } catch(e) { alert("Failed to delete: " + e.message); }
+  };
+
+  if (loading) return <div style={{ textAlign:"center",color:"#94a3b8",padding:60 }}>Loading…</div>;
+
+  const dueSoon = items.filter(i=>{ const d=daysUntil(i.next_service); return d!==null && d<=30; }).length;
+  const fmtDate = s => s ? String(s).slice(0,10) : "";
+
+  return (
+    <div style={{ padding:"20px 28px" }}>
+
+      {/* Summary bar */}
+      <div style={{ display:"flex",gap:16,marginBottom:20,flexWrap:"wrap",alignItems:"center" }}>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>Total Trucks</div>
+          <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{items.length}</div>
+        </div>
+        <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+          <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>In Service</div>
+          <div style={{ fontSize:28,fontWeight:700,color:"#15803d",fontFamily:T.mono }}>{items.filter(i=>i.status==="In Service").length}</div>
+        </div>
+        {dueSoon>0&&(
+          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+            padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
+            <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Service Due ≤30d</div>
+            <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{dueSoon}</div>
+          </div>
+        )}
+        <div style={{ marginLeft:"auto" }}>
+          <Btn variant="primary" onClick={()=>setAddOpen(v=>!v)}>+ Add Truck</Btn>
+        </div>
+      </div>
+
+      {/* Add form */}
+      {addOpen&&(
+        <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:10,
+          padding:"16px 20px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end" }}>
+          <div style={{ width:120 }}><FWrap label="Truck ID"><input value={nf.truck_tag} onChange={e=>setNf({...nf,truck_tag:e.target.value})} placeholder="MBS-T01" style={{...iBase}} autoFocus /></FWrap></div>
+          <div style={{ width:90 }}><FWrap label="Year"><input value={nf.year} onChange={e=>setNf({...nf,year:e.target.value})} placeholder="2022" style={{...iBase}} /></FWrap></div>
+          <div style={{ flex:1,minWidth:160 }}><FWrap label="Make / Model"><input value={nf.make_model} onChange={e=>setNf({...nf,make_model:e.target.value})} placeholder="Ford F-250" style={{...iBase}} /></FWrap></div>
+          <div style={{ width:110 }}><FWrap label="Plate"><input value={nf.plate} onChange={e=>setNf({...nf,plate:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+            {TRUCK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Assigned Driver / Crew"><input value={nf.assigned_to} onChange={e=>setNf({...nf,assigned_to:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ width:110 }}><FWrap label="Mileage"><input value={nf.mileage} onChange={e=>setNf({...nf,mileage:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Last Service"><input type="date" value={nf.last_service} onChange={e=>setNf({...nf,last_service:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Next Service Due"><input type="date" value={nf.next_service} onChange={e=>setNf({...nf,next_service:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ display:"flex",gap:8 }}>
+            <Btn variant="secondary" onClick={()=>setAddOpen(false)}>Cancel</Btn>
+            <Btn variant="primary" onClick={addItem} style={{ opacity:(nf.truck_tag.trim()||nf.make_model.trim())?1:.4 }}>Add</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,overflow:"hidden",
+        boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+        <table style={{ width:"100%",borderCollapse:"collapse" }}>
+          <thead>
+            <tr style={{ background:T.bg,borderBottom:`1.5px solid ${T.border}` }}>
+              {["Truck","Year","Make / Model","Plate","Status","Driver / Crew","Mileage","Last Service","Next Service",""].map(h=>(
+                <th key={h} style={{ textAlign:"left",padding:"9px 14px",fontSize:11,
+                  fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase",whiteSpace:"nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item,i)=>{
+              const isEditing = editId===item.id;
+              const d = daysUntil(item.next_service);
+              const overdue = d!==null && d<0;
+              const soon = d!==null && d>=0 && d<=30;
+              return (
+                <tr key={item.id} style={{ borderBottom:i<items.length-1?`1px solid ${T.border}`:"none",
+                  background:overdue?"#fef2f2":soon?"#fffdf4":"transparent" }}>
+                  <td style={{ padding:"12px 14px",fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.slate }}>
+                    {isEditing ? <input value={item.truck_tag||""} onChange={e=>updateField(item.id,"truck_tag",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.truck_tag||"—")}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:13,color:T.muted }}>
+                    {isEditing ? <input value={item.year||""} onChange={e=>updateField(item.id,"year",e.target.value)} style={{...iBase,fontSize:13,width:70}} /> : (item.year||"—")}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:14,fontWeight:600,color:T.slate }}>
+                    {isEditing ? <input value={item.make_model||""} onChange={e=>updateField(item.id,"make_model",e.target.value)} style={{...iBase,fontSize:14,fontWeight:600}} /> : (item.make_model||"—")}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
+                    {isEditing ? <input value={item.plate||""} onChange={e=>updateField(item.id,"plate",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.plate||"—")}
+                  </td>
+                  <td style={{ padding:"12px 14px" }}>
+                    {isEditing ? (
+                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                        {TRUCK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                    ) : <Badge status={item.status} />}
+                  </td>
+                  <td style={{ padding:"12px 14px" }}>
+                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                      <span style={{ fontSize:13,color:item.assigned_to?T.slate:"#d1d5db" }}>{item.assigned_to||"—"}</span>}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
+                    {isEditing ? <input value={item.mileage||""} onChange={e=>updateField(item.id,"mileage",e.target.value)} style={{...iBase,fontSize:13,width:80}} /> :
+                      (item.mileage!=null ? Number(item.mileage).toLocaleString() : "—")}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:13,color:T.muted }}>
+                    {isEditing ? <input type="date" value={fmtDate(item.last_service)} onChange={e=>updateField(item.id,"last_service",e.target.value)} style={{...iBase,fontSize:13}} /> : (fmtDate(item.last_service)||"—")}
+                  </td>
+                  <td style={{ padding:"12px 14px",fontSize:13 }}>
+                    {isEditing ? <input type="date" value={fmtDate(item.next_service)} onChange={e=>updateField(item.id,"next_service",e.target.value)} style={{...iBase,fontSize:13}} /> : (
+                      item.next_service ? (
+                        <span style={{ display:"flex",alignItems:"center",gap:6,color:overdue?"#dc2626":soon?"#b45309":T.muted,fontWeight:overdue||soon?700:400 }}>
+                          {fmtDate(item.next_service)}
+                          {overdue&&<span style={{ fontSize:10,fontWeight:700,color:"#dc2626",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:20,padding:"1px 7px" }}>Overdue</span>}
+                          {soon&&<span style={{ fontSize:10,fontWeight:700,color:"#b45309",background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:20,padding:"1px 7px" }}>Due soon</span>}
+                        </span>
+                      ) : <span style={{color:"#d1d5db"}}>—</span>
+                    )}
+                  </td>
+                  <td style={{ padding:"12px 14px",whiteSpace:"nowrap" }}>
+                    <div style={{ display:"flex",gap:6,justifyContent:"flex-end" }}>
+                      <Btn variant="secondary" sm onClick={()=>setEditId(isEditing?null:item.id)}>{isEditing?"✓ Done":"Edit"}</Btn>
+                      {confirmDel===item.id ? (
+                        <>
+                          <Btn variant="danger" sm onClick={()=>deleteItem(item.id)}>Delete</Btn>
+                          <Btn variant="secondary" sm onClick={()=>setConfirmDel(null)}>Cancel</Btn>
+                        </>
+                      ) : <Btn variant="danger" sm onClick={()=>setConfirmDel(item.id)}>✕</Btn>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {items.length===0&&<tr><td colSpan={10} style={{ padding:"40px",textAlign:"center",color:"#94a3b8",fontSize:13 }}>No trucks yet. Click <strong>+ Add Truck</strong> to get started.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop:12,fontSize:11,color:"#94a3b8" }}>
+        Rows turn amber when the next service is due within 30 days, red when overdue.
+      </div>
+    </div>
+  );
+}
+
+
+function App() {
+  const [assets,setAssets]         = useState([]);
+  const [counter,setCounter]       = useState(1000);
+  const [loading,setLoading]       = useState(true);
+  const [modal,setModal]           = useState(null);
+  const [selected,setSelected]     = useState(null);
+  const [search,setSearch]         = useState("");
+  const [fType,setFType]           = useState("All");
+  const [fStatus,setFStatus]       = useState("All");
+  const [fQR,setFQR]               = useState("All");
+  const [sortBy,setSortBy]         = useState("tag");
+  const [showLookup,setShowLookup] = useState(false);
+  const [activeTab,setActiveTab]   = useState("assets"); // "assets" | "consumables" | "shirts"
+  const [user,setUser]             = useState(null);
+  const [authReady,setAuthReady]   = useState(false);
+
+  // Check for existing token on mount
+  useEffect(()=>{
+    if (window.authToken) {
+      // Validate token by hitting a protected endpoint
+      window.api.get('/api/assets').then(()=>{
+        // Token is valid — but we don't have user info stored, so parse JWT
+        try {
+          const payload = JSON.parse(atob(window.authToken.split('.')[1]));
+          setUser({ username: payload.username, role: payload.role });
+        } catch { window.api.setToken(null); }
+        setAuthReady(true);
+      }).catch(()=>{
+        window.api.setToken(null);
+        setAuthReady(true);
+      });
+    } else {
+      setAuthReady(true);
+    }
+  },[]);
+
+  useEffect(()=>{
+    if (!user) return;
+    (async()=>{
+      const a = await loadAssets();
+      // Derive counter from highest asset tag number
+      const maxTag = a.reduce((max, asset) => {
+        const num = parseInt((asset.tag||'').replace('MBS-','')) || 0;
+        return Math.max(max, num);
+      }, 1000);
+      setAssets(a); setCounter(maxTag); setLoading(false);
+      // QR deep link: ?asset=MBS-LT-304 opens that asset automatically
+      const params = new URLSearchParams(window.location.search);
+      const qrTag = params.get('asset');
+      if (qrTag) {
+        const found = a.find(x => x.tag === qrTag);
+        if (found) { setSelected(found); setModal({type:'detail'}); }
+        window.history.replaceState({}, '', '/');
+      }
+    })();
+  },[user]);
+
+  const persist=useCallback(async next=>{ setAssets(next); },[]);
+
+  const handleLogout = () => {
+    window.api.setToken(null);
+    setUser(null);
+    setAssets([]);
+    setLoading(true);
+  };
+
+  const [warnLogout, setWarnLogout] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    let warnTimer, logoutTimer;
+    const reset = () => {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+      setWarnLogout(false);
+      warnTimer   = setTimeout(() => setWarnLogout(true),  25 * 60 * 1000);
+      logoutTimer = setTimeout(() => handleLogout(),        30 * 60 * 1000);
+    };
+    const events = ['mousemove','mousedown','keydown','touchstart','scroll'];
+    events.forEach(e => window.addEventListener(e, reset));
+    reset();
+    return () => {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [user]);
+
+  const stats={
+    total:assets.length,
+    inService:assets.filter(a=>a.status==="In Service").length,
+    inStorage:assets.filter(a=>a.status==="In Storage").length,
+    repair:assets.filter(a=>a.status==="Awaiting Repair").length,
+    linked:assets.filter(a=>a.qrCode).length,
+    unlinked:assets.filter(a=>!a.qrCode).length,
+  };
+
+  const filtered=assets.filter(a=>{
+    const q=search.toLowerCase();
+    const mQ=!q||[a.tag,a.name,a.make,a.model,a.serial,a.imei,a.assignedTo,a.entraName,a.department,a.qrCode].some(f=>f?.toLowerCase().includes(q));
+    return mQ&&(fType==="All"||a.type===fType)&&(fStatus==="All"||a.status===fStatus)
+      &&(fQR==="All"||(fQR==="Linked"&&!!a.qrCode)||(fQR==="Unlinked"&&!a.qrCode));
+  }).sort((a,b)=>{
+    if(sortBy==="tag")    return a.tag.localeCompare(b.tag);
+    if(sortBy==="name")   return (a.name||"").localeCompare(b.name||"");
+    if(sortBy==="status") return a.status.localeCompare(b.status);
+    if(sortBy==="type")   return a.type.localeCompare(b.type);
+    return 0;
+  });
+
+  const handleAdd=async f=>{
+    try {
+      const body = {
+        asset_tag: f.tag, type: f.type, name: f.name, make: f.make, model: f.model,
+        serial_number: f.serial, assigned_to: f.assignedTo, location: f.location,
+        status: f.status, condition: f.condition, windows_license: f.windowsLicense,
+        autopilot_ready: f.autopilotReady, notes: f.notes,
+        entra_name: f.entraName, department: f.department,
+        imei: f.imei, warranty_expiry: f.warrantyExpiry, warranty_expired: f.warrantyExpired,
+      };
+      const created = await window.api.post('/api/assets', body);
+      const mapped = { ...f, id: created.id, createdAt: created.created_at, history:[], shippingRecords:[], qrCode:"" };
+      const nc = counter + 1;
+      setAssets(prev => [...prev, mapped]);
+      setCounter(nc);
+      setModal(null);
+    } catch(e) { alert("Failed to add asset: " + e.message); }
+  };
+
+  const handleEdit=async f=>{
+    try {
+      const body = {
+        asset_tag: f.tag, type: f.type, name: f.name, make: f.make, model: f.model,
+        serial_number: f.serial, assigned_to: f.assignedTo, location: f.location,
+        status: f.status, condition: f.condition, windows_license: f.windowsLicense,
+        autopilot_ready: f.autopilotReady, notes: f.notes,
+        entra_name: f.entraName, department: f.department,
+        imei: f.imei, warranty_expiry: f.warrantyExpiry, warranty_expired: f.warrantyExpired,
+      };
+      await window.api.put('/api/assets/' + selected.id, body);
+      setAssets(prev => prev.map(a => a.id===selected.id ? {...a,...f} : a));
+      setSelected(s=>({...s,...f}));
+      setModal({type:"detail"});
+    } catch(e) { alert("Failed to update asset: " + e.message); }
+  };
+  const handleCheckin=async f=>{
+    const entry={...f,date:nowISO()};
+    const updated = assets.map(a=>a.id===selected.id
+      ?{...a,status:f.newStatus,condition:f.conditionOnReturn,history:[...(a.history||[]),entry]}:a);
+    setAssets(updated);
+    // Persist status/condition change
+    const asset = updated.find(a=>a.id===selected.id);
+    await window.api.put('/api/assets/'+selected.id, {
+      asset_tag:asset.tag, type:asset.type, make:asset.make, model:asset.model,
+      serial_number:asset.serial, assigned_to:asset.assignedTo, location:asset.location,
+      status:f.newStatus, condition:f.conditionOnReturn, windows_license:asset.windowsLicense,
+      autopilot_ready:asset.autopilotReady, notes:asset.notes,
+    });
+    setSelected(s=>({...s,status:f.newStatus,condition:f.conditionOnReturn,history:[...(s.history||[]),entry]}));
+    setModal({type:"detail"});
+  };
+  const handleShipping=async f=>{
+    const entry={...f,date:nowISO()};
+    setAssets(prev=>prev.map(a=>a.id===selected.id
+      ?{...a,shippingRecords:[...(a.shippingRecords||[]),entry]}:a));
+    setSelected(s=>({...s,shippingRecords:[...(s.shippingRecords||[]),entry]}));
+    setModal({type:"detail"});
+  };
+  const handleLinkQR=async val=>{
+    if(!val||assets.find(a=>a.id!==selected.id&&a.qrCode===val)) return;
+    try {
+      await window.api.put('/api/assets/'+selected.id, {
+        asset_tag:selected.tag, type:selected.type, name:selected.name, make:selected.make, model:selected.model,
+        serial_number:selected.serial, assigned_to:selected.assignedTo, location:selected.location,
+        status:selected.status, condition:selected.condition, windows_license:selected.windowsLicense,
+        autopilot_ready:selected.autopilotReady, notes:selected.notes,
+        entra_name:selected.entraName, department:selected.department,
+        imei:selected.imei, warranty_expiry:selected.warrantyExpiry, warranty_expired:selected.warrantyExpired,
+        qr_code:val,
+      });
+      setAssets(prev=>prev.map(a=>a.id===selected.id?{...a,qrCode:val}:a));
+      setSelected(s=>({...s,qrCode:val}));
+      setModal({type:"detail"});
+    } catch(e) { alert("Failed to link QR: "+e.message); }
+  };
+  const handleRemoveQR=async()=>{
+    try {
+      await window.api.put('/api/assets/'+selected.id, {
+        asset_tag:selected.tag, type:selected.type, name:selected.name, make:selected.make, model:selected.model,
+        serial_number:selected.serial, assigned_to:selected.assignedTo, location:selected.location,
+        status:selected.status, condition:selected.condition, windows_license:selected.windowsLicense,
+        autopilot_ready:selected.autopilotReady, notes:selected.notes,
+        entra_name:selected.entraName, department:selected.department,
+        imei:selected.imei, warranty_expiry:selected.warrantyExpiry, warranty_expired:selected.warrantyExpired,
+        qr_code:"",
+      });
+      setAssets(prev=>prev.map(a=>a.id===selected.id?{...a,qrCode:""}:a));
+      setSelected(s=>({...s,qrCode:""}));
+      setModal({type:"detail"});
+    } catch(e) { alert("Failed to remove QR: "+e.message); }
+  };
+  const handleDelete=async()=>{
+    try {
+      await window.api.del('/api/assets/'+selected.id);
+      setAssets(prev=>prev.filter(a=>a.id!==selected.id));
+      setSelected(null); setModal(null);
+    } catch(e) { alert("Failed to delete: " + e.message); }
+  };
+  const openDetail=a=>{ setSelected(a); setModal({type:"detail"}); };
+
+
+
+
+  const handleExportCSV = () => {
+    const cols = ['Asset Tag','Type','Name','Make','Model','Serial Number','Assigned To','Location','Status','Condition','Windows License','Autopilot Ready','Entra / Intune Name','Department','IMEI','Warranty Expiry','Notes'];
+    const esc = v => '"' + String(v||'').split('"').join('""').split('\n').join(' ') + '"';
+    const rows = assets.map(a => [a.tag,a.type,a.name,a.make,a.model,a.serial,a.assignedTo,a.location,a.status,a.condition,a.windowsLicense?'Yes':'No',a.autopilotReady?'Yes':'No',a.entraName,a.department,a.imei,a.warrantyExpiry||'',a.notes].map(esc).join(','));
+    const csv = [cols.join(',')].concat(rows).join('\n');
+    const blob = new Blob([csv],{type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const lnk = document.createElement('a');
+    lnk.href = url;
+    lnk.download = 'MBS-Assets-' + new Date().toISOString().slice(0,10) + '.csv';
+    lnk.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const lines = ev.target.result.split('\n').filter(l => l.trim());
+        const parse = line => { const v=[]; let c='',q=false; for(let x of line){if(x==='"')q=!q; else if(x===','&&!q){v.push(c);c='';}else c+=x;} v.push(c); return v; };
+        const hdrs = parse(lines[0]).map(h => h.trim());
+        let ok=0, skip=0;
+        for(const line of lines.slice(1)) {
+          const vals = parse(line);
+          const r = {}; hdrs.forEach((h,i) => r[h]=(vals[i]||'').trim());
+          if(!r['Asset Tag']){skip++;continue;}
+          try {
+            await window.api.post('/api/assets',{asset_tag:r['Asset Tag'],type:r['Type'],name:r['Name'],make:r['Make'],model:r['Model'],serial_number:r['Serial Number'],assigned_to:r['Assigned To'],location:r['Location'],status:r['Status'],condition:r['Condition'],windows_license:r['Windows License']==='Yes',autopilot_ready:r['Autopilot Ready']==='Yes',entra_name:r['Entra / Intune Name'],department:r['Department'],imei:r['IMEI'],warranty_expiry:r['Warranty Expiry']||null,notes:r['Notes']});
+            ok++;
+          } catch { skip++; }
+        }
+        const fresh = await window.api.get('/api/assets');
+        setAssets(fresh.map(a => ({id:a.id,tag:a.asset_tag,type:a.type,name:a.name,make:a.make,model:a.model,serial:a.serial_number,assignedTo:a.assigned_to,location:a.location,status:a.status||'In Storage',condition:a.condition,windowsLicense:a.windows_license,autopilotReady:a.autopilot_ready,notes:a.notes,entraName:a.entra_name||'',department:a.department||'',imei:a.imei||'',warrantyExpiry:a.warranty_expiry,warrantyExpired:a.warranty_expired,history:a.history||[],shippingRecords:a.shipping_records||[],qrCode:a.qr_code||'',photos:a.photos||[]})));
+        alert('Done! ' + ok + ' imported, ' + skip + ' skipped.');
+      } catch(err) { alert('Failed: ' + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleExport = () => {
+    const data = { assets, counter, exportedAt: nowISO(), version: "mbs-v3" };
+    const json = JSON.stringify(data, null, 2);
+    // Try clipboard first, fall back to a text window
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(json).then(() => {
+        alert("Data copied to clipboard! Paste it into Notepad, save as mbs-backup.json, then import into the HTML app.");
+      }).catch(() => showDataWindow(json));
+    } else {
+      showDataWindow(json);
+    }
+  };
+
+  const showDataWindow = (json) => {
+    const w = window.open("", "_blank", "width=600,height=400");
+    w.document.write("<html><body><p><b>Select all text below, copy it, paste into Notepad, save as mbs-backup.json</b></p><textarea style='width:100%;height:320px;font-size:11px'>" + json.replace(/</g,"&lt;") + "</textarea></body></html>");
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.assets || !Array.isArray(data.assets)) throw new Error("Invalid file");
+        await persist(data.assets);
+        if (data.counter) { setCounter(data.counter); await saveCounter(data.counter); }
+        alert("Imported " + data.assets.length + " assets successfully.");
+      } catch { alert("Import failed — file may be invalid or corrupted."); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div style={{ minHeight:"100vh",background:T.white,fontFamily:T.font,color:T.slate }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}
+        ::-webkit-scrollbar{width:6px;height:6px;background:#f1f5f9}
+        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+        button:hover{opacity:.82}
+        .rh:hover{background:${T.bg} !important;cursor:pointer}
+        input:focus,select:focus,textarea:focus{border-color:${T.amber} !important;outline:none}
+      `}</style>
+
+      {/* Auth gate */}
+      {!authReady && (
+        <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:15 }}>
+          Connecting…
+        </div>
+      )}
+      {authReady && !user && <LoginScreen onLogin={(u,t)=>setUser(u)} />}
+      {authReady && user && (<>
+
+      {warnLogout && (
+        <div style={{ position:"fixed", bottom:24, right:24, zIndex:9999,
+          background:"#1e293b", color:"#fff", borderRadius:12, padding:"16px 20px",
+          boxShadow:"0 8px 32px rgba(0,0,0,.25)", display:"flex", alignItems:"center", gap:14,
+          border:"1.5px solid #f59e0b" }}>
+          <span style={{ fontSize:20 }}>⚠️</span>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14, marginBottom:2 }}>Session expiring soon</div>
+            <div style={{ fontSize:12, color:"#94a3b8" }}>You will be logged out in 5 minutes due to inactivity.</div>
+          </div>
+          <button onClick={()=>setWarnLogout(false)}
+            style={{ background:"#f59e0b", border:"none", borderRadius:6, color:"#fff",
+              fontWeight:700, fontSize:12, padding:"6px 12px", cursor:"pointer", marginLeft:8 }}>
+            Stay Logged In
+          </button>
+        </div>
+      )}
+
+      {/* Nav */}
+      <div style={{ background:T.white,borderBottom:`1.5px solid ${T.border}`,padding:"0 28px",
+        display:"flex",justifyContent:"space-between",alignItems:"center",height:58,
+        position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,.06)" }}>
+        <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+          <div style={{ width:34,height:34,background:T.amber,borderRadius:8,fontSize:18,
+            display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 2px 6px ${T.amber}55` }}>☀</div>
+          <div>
+            <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>Miller Bros Solar</div>
+            <div style={{ fontSize:10,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>IT Asset Management</div>
+          </div>
+        </div>
+        <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+          <Btn variant="secondary" sm onClick={()=>setShowLookup(v=>!v)}>▣ QR Lookup</Btn>
+          <Btn variant="secondary" sm onClick={handleExportCSV}>Export CSV</Btn>
+          <label><input type="file" accept=".csv" style={{display:"none"}} onChange={handleImportCSV}/><Btn variant="secondary" sm onClick={()=>{}}>Import CSV</Btn></label>
+          {activeTab==="assets"&&<Btn variant="primary" onClick={()=>setModal({type:"add"})}>+ New Asset</Btn>}
+          <div style={{ display:"flex",alignItems:"center",gap:8,marginLeft:8,
+            padding:"5px 12px",background:T.bg,borderRadius:7,border:`1.5px solid ${T.border}` }}>
+            <span style={{ fontSize:12,fontWeight:600,color:T.slate }}>👤 {user.username}</span>
+            {user.role==="admin"&&<span style={{ fontSize:10,fontWeight:700,color:T.amberD,background:T.amberL,
+              padding:"1px 6px",borderRadius:4,border:`1px solid #fcd34d` }}>admin</span>}
+          </div>
+          <Btn variant="secondary" sm onClick={handleLogout}>Sign Out</Btn>
+        </div>
+      </div>
+
+      {/* Tab Bar */}
+      <div style={{ background:T.white,borderBottom:`1.5px solid ${T.border}`,
+        padding:"0 28px",display:"flex",gap:0 }}>
+        {[["assets","📋  IT Assets"],["consumables","🔌  Consumables"],["shirts","👕  Shirts"],["tools","🔧  Field Tools"],["trucks","🚚  Trucks"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setActiveTab(key)}
+            style={{ background:"none",border:"none",borderBottom:`3px solid ${activeTab===key?T.amber:"transparent"}`,
+              padding:"12px 20px",fontSize:13,fontWeight:activeTab===key?700:500,
+              color:activeTab===key?T.slate:T.muted,cursor:"pointer",
+              fontFamily:T.font,transition:"color .15s",marginBottom:-1 }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats — assets tab only */}
+      {activeTab==="assets"&&<div style={{ background:T.white,borderBottom:`1.5px solid ${T.border}`,display:"flex",overflowX:"auto" }}>
+        {[
+          ["Total",       stats.total,     T.slate,   null,             null],
+          ["In Service",  stats.inService, "#15803d", "In Service",     null],
+          ["In Storage",  stats.inStorage, "#1d4ed8", "In Storage",     null],
+          ["Needs Repair",stats.repair,    "#b45309", "Awaiting Repair",null],
+          ["QR Linked",   stats.linked,    T.amberD,  null,             "Linked"],
+          ["No QR Tag",   stats.unlinked,  "#94a3b8", null,             "Unlinked"],
+        ].map(([label,val,color,sf,qf])=>(
+          <div key={label} onClick={()=>{ if(sf) setFStatus(fStatus===sf?"All":sf); if(qf) setFQR(fQR===qf?"All":qf); }}
+            style={{ padding:"12px 22px",borderRight:`1px solid ${T.border}`,minWidth:110,cursor:"pointer",
+              transition:"background .15s",background:((sf&&fStatus===sf)||(qf&&fQR===qf))?T.amberL:T.white }}>
+            <div style={{ fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>{label}</div>
+            <div style={{ fontSize:26,fontWeight:700,color,marginTop:1,fontFamily:T.mono }}>{val}</div>
+          </div>
+        ))}
+        {(fStatus!=="All"||fQR!=="All")&&(
+          <div style={{ padding:"12px 14px",display:"flex",alignItems:"center" }}>
+            <button onClick={()=>{setFStatus("All");setFQR("All");}} style={{ fontSize:12,color:T.muted,
+              background:T.bg,border:`1px solid ${T.border}`,borderRadius:5,padding:"4px 10px",cursor:"pointer" }}>Clear ×</button>
+          </div>
+        )}
+      </div>}
+
+      {activeTab==="consumables" ? <ConsumablesTab /> : activeTab==="shirts" ? <ShirtsTab /> : activeTab==="tools" ? <ToolsTab /> : activeTab==="trucks" ? <TrucksTab /> : (
+      <div style={{ padding:"20px 28px" }}>
+        {showLookup&&<div style={{ marginBottom:16 }}><QRLookup assets={assets} onSelect={a=>{ openDetail(a); setShowLookup(false); }} /></div>}
+
+        {/* Filters */}
+        <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
+          <input placeholder="Search tag, name, serial, QR, user…" value={search} onChange={e=>setSearch(e.target.value)}
+            style={{ ...iBase,flex:1,minWidth:220,maxWidth:380 }} />
+          <select value={fType} onChange={e=>setFType(e.target.value)} style={{ ...iBase,width:"auto",minWidth:130 }}>
+            <option value="All">All Types</option>{ASSET_TYPES.map(t=><option key={t}>{t}</option>)}
+          </select>
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{ ...iBase,width:"auto",minWidth:160 }}>
+            <option value="All">All Statuses</option>{STATUSES.map(s=><option key={s}>{s}</option>)}
+          </select>
+          <select value={fQR} onChange={e=>setFQR(e.target.value)} style={{ ...iBase,width:"auto",minWidth:130 }}>
+            <option value="All">All QR Status</option>
+            <option value="Linked">QR Linked</option>
+            <option value="Unlinked">No QR Tag</option>
+          </select>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ ...iBase,width:"auto",minWidth:120 }}>
+            <option value="tag">Sort: Tag</option>
+            <option value="name">Sort: Name</option>
+            <option value="status">Sort: Status</option>
+            <option value="type">Sort: Type</option>
+          </select>
+        </div>
+
+        {/* Table */}
+        {loading?(
+          <div style={{ textAlign:"center",color:"#94a3b8",padding:60 }}>Loading…</div>
+        ):filtered.length===0?(
+          <div style={{ textAlign:"center",padding:70 }}>
+            <div style={{ fontSize:38,marginBottom:12 }}>📦</div>
+            <div style={{ fontSize:16,fontWeight:600,color:"#475569" }}>
+              {assets.length===0?"No assets yet — add your first one above":"No results match your filters"}
+            </div>
+          </div>
+        ):(
+          <div style={{ background:T.white,border:`1.5px solid ${T.border}`,borderRadius:10,
+            overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+            <table style={{ width:"100%",borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:T.bg,borderBottom:`1.5px solid ${T.border}` }}>
+                  {["Asset Tag","Name / Model","Type","Intune Name","Win License","Autopilot","Status","Condition","QR","📷","Location","Assigned To"].map(h=>(
+                    <th key={h} style={{ textAlign:"left",padding:"9px 14px",fontSize:11,fontWeight:700,
+                      color:"#94a3b8",letterSpacing:.7,textTransform:"uppercase" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((a,i)=>{
+                  const photoCount=(a.shippingRecords||[]).reduce((n,r)=>n+(r.photos?.length||0),0);
+                  return (
+                    <tr key={a.id} className="rh"
+                      style={{ borderBottom:i<filtered.length-1?`1px solid ${T.border}`:"none",transition:"background .1s" }}
+                      onClick={()=>openDetail(a)}>
+                      <td style={{ padding:"10px 14px" }}>
+                        <span style={{ fontFamily:T.mono,fontSize:13,fontWeight:600,color:T.slate }}>{a.tag}</span>
+                        {(a.warrantyExpired||soonExp(a.warrantyExpiry))&&<span title={a.warrantyExpired?"Warranty expired":"Warranty expiring soon"} style={{ marginLeft:6,fontSize:11,color:"#dc2626" }}>⚠</span>}
+                      </td>
+                      <td style={{ padding:"10px 14px",fontSize:13,color:T.slate,fontWeight:500,maxWidth:190 }}>
+                        <div style={{ overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                          {a.name||[a.make,a.model].filter(Boolean).join(" ")||<span style={{color:"#94a3b8"}}>—</span>}
+                        </div>
+                      </td>
+                      <td style={{ padding:"10px 14px",fontSize:12,color:T.muted }}>{a.type}</td>
+                      <td style={{ padding:"10px 14px" }}>
+                        {(a.type==="Desktop"||a.type==="Laptop")&&a.entraName
+                          ? <span style={{ fontFamily:T.mono,fontSize:12,fontWeight:600,color:T.amberD,
+                              background:T.amberL,padding:"2px 7px",borderRadius:4,
+                              border:`1px solid #fcd34d` }}>{a.entraName}</span>
+                          : <span style={{ color:"#d1d5db" }}>—</span>}
+                      </td>
+                      <td style={{ padding:"10px 14px",textAlign:"center" }}>
+                        {(a.type==="Desktop"||a.type==="Laptop")
+                          ? a.windowsLicense
+                            ? <span style={{ fontSize:12,fontWeight:700,color:"#15803d",background:"#f0fdf4",
+                                border:"1.5px solid #86efac",borderRadius:20,padding:"2px 8px" }}>✓ Yes</span>
+                            : <span style={{ fontSize:12,fontWeight:700,color:"#dc2626",background:"#fef2f2",
+                                border:"1.5px solid #fca5a5",borderRadius:20,padding:"2px 8px" }}>✗ No</span>
+                          : <span style={{ color:"#d1d5db" }}>—</span>}
+                      </td>
+                      <td style={{ padding:"10px 14px",textAlign:"center" }}>
+                        {(a.type==="Desktop"||a.type==="Laptop")
+                          ? a.autopilotReady
+                            ? <span style={{ fontSize:12,fontWeight:700,color:"#1d4ed8",background:"#eff6ff",
+                                border:"1.5px solid #93c5fd",borderRadius:20,padding:"2px 8px" }}>✓ Yes</span>
+                            : <span style={{ fontSize:12,fontWeight:700,color:"#6b7280",background:"#f9fafb",
+                                border:"1.5px solid #d1d5db",borderRadius:20,padding:"2px 8px" }}>✗ No</span>
+                          : <span style={{ color:"#d1d5db" }}>—</span>}
+                      </td>
+                      <td style={{ padding:"10px 14px" }}><Badge status={a.status} /></td>
+                      <td style={{ padding:"10px 14px" }}><CondPill condition={a.condition} /></td>
+                      <td style={{ padding:"10px 14px" }}>{a.qrCode?<span title={a.qrCode} style={{ fontSize:16 }}>▣</span>:<span style={{ fontSize:14,color:"#d1d5db" }}>▢</span>}</td>
+                      <td style={{ padding:"10px 14px",fontSize:12,color:photoCount>0?"#1d4ed8":T.muted }}>
+                        {photoCount>0?`📷 ${photoCount}`:"—"}
+                      </td>
+                      <td style={{ padding:"10px 14px",fontSize:12,color:T.muted }}>{a.location||"—"}</td>
+                      <td style={{ padding:"10px 14px",fontSize:12,color:T.muted }}>{a.assignedTo||"—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ padding:"9px 14px",borderTop:`1px solid ${T.border}`,
+              fontSize:12,color:"#94a3b8",display:"flex",justifyContent:"space-between" }}>
+              <span>{filtered.length} asset{filtered.length!==1?"s":""} shown</span>
+              <span>{stats.linked}/{stats.total} QR linked</span>
+            </div>
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Modals */}
+      {modal?.type==="add"&&<Modal title="Add New Asset" wide onClose={()=>setModal(null)}>
+        <AssetForm nextTag={genTag(counter)} onSave={handleAdd} onCancel={()=>setModal(null)} allAssets={assets} />
+      </Modal>}
+      {modal?.type==="edit"&&selected&&<Modal title={`Edit — ${selected.tag}`} wide onClose={()=>setModal({type:"detail"})}>
+        <AssetForm initial={selected} onSave={handleEdit} onCancel={()=>setModal({type:"detail"})} allAssets={assets} />
+      </Modal>}
+      {modal?.type==="checkin"&&selected&&<Modal title="Log Check-In" onClose={()=>setModal({type:"detail"})}>
+        <CheckInForm asset={selected} onSave={handleCheckin} onCancel={()=>setModal({type:"detail"})} />
+      </Modal>}
+      {modal?.type==="shipping"&&selected&&<Modal title="Log Shipment / Transfer" wide onClose={()=>setModal({type:"detail"})}>
+        <ShippingForm asset={selected} onSave={handleShipping} onCancel={()=>setModal({type:"detail"})} />
+      </Modal>}
+      {modal?.type==="qr"&&selected&&<QRAssocModal asset={selected} allAssets={assets}
+        onSave={handleLinkQR} onRemove={handleRemoveQR} onClose={()=>setModal({type:"detail"})} />}
+      {modal?.type==="detail"&&selected&&<Modal title="" wide onClose={()=>{ setModal(null); setSelected(null); }}>
+        <AssetDetail asset={selected}
+          onEdit={()=>setModal({type:"edit"})}
+          onCheckin={()=>setModal({type:"checkin"})}
+          onShipping={()=>setModal({type:"shipping"})}
+          onLinkQR={()=>setModal({type:"qr"})}
+          onDelete={handleDelete} />
+      </Modal>}
+      </>)}
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
