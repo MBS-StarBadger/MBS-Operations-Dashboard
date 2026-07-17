@@ -1,37 +1,16 @@
 const express = require('express');
-const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const cors = require('cors');
 require('dotenv').config();
 
+const pool = require('./db/pool');
+const auth = require('./middleware/auth');
+const adminOnly = require('./middleware/adminOnly');
+
 const app = express();
+
 app.use(cors());
 app.use(express.json());
-
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-});
-
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-const adminOnly = (req, res, next) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  next();
-};
 
 async function initDB() {
   await pool.query(`
