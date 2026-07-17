@@ -4,13 +4,16 @@ const cors = require('cors');
 require('dotenv').config();
 
 const pool = require('./db/pool');
+
 const auth = require('./middleware/auth');
 const adminOnly = require('./middleware/adminOnly');
+const dashboardRouter = require('./routes/dashboard');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use('/api/dashboard', dashboardRouter);
 
 async function initDB() {
   await pool.query(`
