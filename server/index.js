@@ -385,9 +385,13 @@ app.get('/asset/:tag', (req, res) => {
 
 app.use(express.static('public'));
 
-initDB().then(() => {
-  app.listen(process.env.PORT, () => {
-    console.log(`MBS Backend running on port ${process.env.PORT}`);
+if (require.main === module) {
+  initDB().then(() => {
+    app.listen(process.env.PORT, () => {
+      console.log(`MBS Backend running on port ${process.env.PORT}`);
+    });
   });
-});
+}
+
+module.exports = app;
 
