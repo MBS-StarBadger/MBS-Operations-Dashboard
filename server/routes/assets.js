@@ -10,4 +10,14 @@ router.get('/', auth, async (req, res) => {
   res.json(assets);
 });
 
+router.get('/:id', auth, async (req, res) => {
+  const asset = await assetRepository.findById(req.params.id);
+
+  if (!asset) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  res.json(asset);
+});
+
 module.exports = router;

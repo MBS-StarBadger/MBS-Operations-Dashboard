@@ -10,12 +10,14 @@ const pool = require('./db/pool');
 const auth = require('./middleware/auth');
 const adminOnly = require('./middleware/adminOnly');
 const dashboardRouter = require('./routes/dashboard');
+const assetsRouter = require('./routes/assets');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/assets', assetsRouter);
 
 async function initDB() {
   await pool.query(`
@@ -177,17 +179,6 @@ app.put('/api/users/:id/password', auth, adminOnly, async (req, res) => {
   const hash = await bcrypt.hash(req.body.password, 10);
   await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.params.id]);
   res.json({ success: true });
-});
-
-app.get('/api/assets', auth, async (req, res) => {
-  const assets = await assetRepository.findAll();
-  res.json(assets);
-});
-
-app.get('/api/assets/:id', auth, async (req, res) => {
-  const result = await pool.query('SELECT * FROM assets WHERE id = $1', [req.params.id]);
-  if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
-  res.json(result.rows[0]);
 });
 
 app.post('/api/assets', auth, async (req, res) => {

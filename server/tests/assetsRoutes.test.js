@@ -138,11 +138,17 @@ describe('Asset routes', () => {
       ]
     );
 
-    expect(pool.query).toHaveBeenNthCalledWith(
-      2,
-      'INSERT INTO activity_log (user_id, action, details) VALUES ($1, $2, $3)',
-      [7, 'ADD_ASSET', 'Added asset MBS-100']
+    expect(
+      pool.query.mock.calls[1][0].replace(/\s+/g, ' ').trim()
+    ).toBe(
+      'INSERT INTO activity_log (user_id, action, details) VALUES ($1, $2, $3)'
     );
+
+    expect(pool.query.mock.calls[1][1]).toEqual([
+      7,
+      'ADD_ASSET',
+      'Added asset MBS-100',
+    ]);
   });
 
   test('PUT /api/assets/:id updates an asset', async () => {
