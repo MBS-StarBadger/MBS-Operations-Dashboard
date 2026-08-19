@@ -124,9 +124,15 @@ async function updateAsset(req, res) {
   }
 }
 
+async function deleteAsset(req, res) {
+  await assetRepository.deleteById(req.params.id);
+  res.json({ success: true });
+}
+
 module.exports = {
   listAssets,
   getAssetById,
   createAsset,
   updateAsset,
+  deleteAsset,
 };
