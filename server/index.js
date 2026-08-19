@@ -11,6 +11,7 @@ const auth = require('./middleware/auth');
 const adminOnly = require('./middleware/adminOnly');
 const dashboardRouter = require('./routes/dashboard');
 const assetsRouter = require('./routes/assets');
+const consumablesRouter = require('./routes/consumables');
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/assets', assetsRouter);
+app.use('/api/consumables', consumablesRouter);
 
 async function initDB() {
   await pool.query(`
@@ -173,34 +175,6 @@ app.post('/api/users', auth, adminOnly, async (req, res) => {
 app.put('/api/users/:id/password', auth, adminOnly, async (req, res) => {
   const hash = await bcrypt.hash(req.body.password, 10);
   await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.params.id]);
-  res.json({ success: true });
-});
-
-app.get('/api/consumables', auth, async (req, res) => {
-  const result = await pool.query('SELECT * FROM consumables ORDER BY name');
-  res.json(result.rows);
-});
-
-app.post('/api/consumables', auth, async (req, res) => {
-  const { name, quantity, low_at, notes } = req.body;
-  const result = await pool.query(
-    'INSERT INTO consumables (name, quantity, low_at, notes) VALUES ($1,$2,$3,$4) RETURNING *',
-    [name, parseInt(quantity)||0, parseInt(low_at)||2, notes||'']
-  );
-  res.json(result.rows[0]);
-});
-
-app.put('/api/consumables/:id', auth, async (req, res) => {
-  const { name, quantity, low_at, notes } = req.body;
-  const result = await pool.query(
-    'UPDATE consumables SET name=$1, quantity=$2, low_at=$3, notes=$4, updated_at=NOW() WHERE id=$5 RETURNING *',
-    [name, parseInt(quantity)||0, parseInt(low_at)||2, notes||'', req.params.id]
-  );
-  res.json(result.rows[0]);
-});
-
-app.delete('/api/consumables/:id', auth, async (req, res) => {
-  await pool.query('DELETE FROM consumables WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });
 
