@@ -5,23 +5,13 @@ const pool = require('../db/pool');
 const auth = require('../middleware/auth');
 const assetRepository = require('../repositories/assetRepository');
 const activityRepository = require('../repositories/activityRepository');
+const assetController = require('../controllers/assetController');
 
 const router = express.Router();
 
-router.get('/', auth, async (req, res) => {
-  const assets = await assetRepository.findAll();
-  res.json(assets);
-});
+router.get('/', auth, assetController.listAssets);
 
-router.get('/:id', auth, async (req, res) => {
-  const asset = await assetRepository.findById(req.params.id);
-
-  if (!asset) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-
-  res.json(asset);
-});
+router.get('/:id', auth, assetController.getAssetById);
 
 router.post('/', auth, async (req, res) => {
   try {

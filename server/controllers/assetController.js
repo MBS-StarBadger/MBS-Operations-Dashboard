@@ -5,6 +5,17 @@ async function listAssets(req, res) {
   res.json(assets);
 }
 
+async function getAssetById(req, res) {
+  const asset = await assetRepository.findById(req.params.id);
+
+  if (!asset) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  res.json(asset);
+}
+
 module.exports = {
   listAssets,
+  getAssetById,
 };
