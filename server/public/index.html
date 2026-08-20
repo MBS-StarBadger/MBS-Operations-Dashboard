@@ -14,7 +14,7 @@
   <div id="root"></div>
   <script>
     // ── API Configuration ──────────────────────────────────────────────────────
-    window.API_BASE = window.location.hostname === 'assets.mbs.local' ? 'https://assets.mbs.local' : 'http://10.0.0.5:3000';
+    window.API_BASE = window.location.origin;
     window.authToken = localStorage.getItem('mbs_token') || null;
 
     window.api = {
@@ -1936,6 +1936,176 @@ function TrucksTab() {
 
 
 function App() {
+  function DashboardTab({ data, loading, error }) {
+  if (loading) {
+    return (
+      <div style={{ padding:40,color:T.muted }}>
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding:40,color:"#dc2626" }}>
+        {error}
+      </div>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <div style={{ padding:"24px 28px",background:T.bg,minHeight:"calc(100vh - 110px)" }}>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:22,fontWeight:700,color:T.slate }}>
+          Operations Dashboard
+        </div>
+        <div style={{ fontSize:13,color:T.muted,marginTop:4 }}>
+          Current asset status, inventory alerts, and recent activity
+        </div>
+      </div>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+        gap:14,
+        marginBottom:22
+      }}>
+        {[
+          ["Total Assets", data.assets.total],
+          ["Assigned", data.assets.assigned],
+          ["Available", data.assets.available],
+          ["Low Consumables", data.alerts.lowConsumables.length],
+          ["Low Shirts", data.alerts.lowShirts.length],
+        ].map(([label,value])=>(
+          <div key={label} style={{
+            background:T.white,
+            border:`1.5px solid ${T.border}`,
+            borderRadius:10,
+            padding:"18px 20px"
+          }}>
+            <div style={{
+              fontSize:11,
+              fontWeight:700,
+              color:T.muted,
+              textTransform:"uppercase",
+              letterSpacing:.7
+            }}>
+              {label}
+            </div>
+            <div style={{
+              fontSize:30,
+              fontWeight:700,
+              marginTop:6,
+              fontFamily:T.mono,
+              color:T.slate
+            }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",
+        gap:18
+      }}>
+        <div style={{
+          background:T.white,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:10,
+          padding:20
+        }}>
+          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
+            Low Consumables
+          </div>
+
+          {data.alerts.lowConsumables.length === 0 ? (
+            <div style={{ color:T.muted,fontSize:13 }}>
+              No low-stock consumables.
+            </div>
+          ) : (
+            data.alerts.lowConsumables.map(item=>(
+              <div key={item.id} style={{
+                display:"flex",
+                justifyContent:"space-between",
+                padding:"8px 0",
+                borderBottom:`1px solid ${T.border}`
+              }}>
+                <span>{item.name}</span>
+                <strong>{item.quantity} / {item.low_at}</strong>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{
+          background:T.white,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:10,
+          padding:20
+        }}>
+          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
+            Low Shirts
+          </div>
+
+          {data.alerts.lowShirts.length === 0 ? (
+            <div style={{ color:T.muted,fontSize:13 }}>
+              No low-stock shirts.
+            </div>
+          ) : (
+            data.alerts.lowShirts.map(item=>(
+              <div key={item.id} style={{
+                display:"flex",
+                justifyContent:"space-between",
+                padding:"8px 0",
+                borderBottom:`1px solid ${T.border}`
+              }}>
+                <span>{item.color} — {item.size}</span>
+                <strong>{item.quantity}</strong>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{
+          background:T.white,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:10,
+          padding:20
+        }}>
+          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
+            Recent Activity
+          </div>
+
+          {data.recentActivity.length === 0 ? (
+            <div style={{ color:T.muted,fontSize:13 }}>
+              No recent activity.
+            </div>
+          ) : (
+            data.recentActivity.map(item=>(
+              <div key={item.id} style={{
+                padding:"8px 0",
+                borderBottom:`1px solid ${T.border}`
+              }}>
+                <div style={{ fontWeight:600 }}>
+                  {item.action}
+                </div>
+                <div style={{ fontSize:12,color:T.muted }}>
+                  {item.username || "Unknown"} — {item.details}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
   const [assets,setAssets]         = useState([]);
   const [counter,setCounter]       = useState(1000);
   const [loading,setLoading]       = useState(true);
@@ -1947,7 +2117,10 @@ function App() {
   const [fQR,setFQR]               = useState("All");
   const [sortBy,setSortBy]         = useState("tag");
   const [showLookup,setShowLookup] = useState(false);
-  const [activeTab,setActiveTab]   = useState("assets"); // "assets" | "consumables" | "shirts"
+  const [activeTab,setActiveTab]   = useState("dashboard");
+  const [dashboard,setDashboard]   = useState(null);
+  const [dashboardLoading,setDashboardLoading] = useState(false);
+  const [dashboardError,setDashboardError] = useState("");
   const [user,setUser]             = useState(null);
   const [authReady,setAuthReady]   = useState(false);
 
@@ -1991,6 +2164,36 @@ function App() {
       }
     })();
   },[user]);
+  useEffect(()=>{
+  if (!user || activeTab !== "dashboard") return;
+
+  let cancelled = false;
+
+  (async()=>{
+    setDashboardLoading(true);
+    setDashboardError("");
+
+    try {
+      const data = await window.api.get('/api/dashboard');
+
+      if (!cancelled) {
+        setDashboard(data);
+      }
+    } catch (error) {
+      if (!cancelled) {
+        setDashboardError(error.message || "Unable to load dashboard");
+      }
+    } finally {
+      if (!cancelled) {
+        setDashboardLoading(false);
+      }
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [user, activeTab]);
 
   const persist=useCallback(async next=>{ setAssets(next); },[]);
 
@@ -2293,15 +2496,23 @@ function App() {
       {/* Tab Bar */}
       <div style={{ background:T.white,borderBottom:`1.5px solid ${T.border}`,
         padding:"0 28px",display:"flex",gap:0 }}>
-        {[["assets","📋  IT Assets"],["consumables","🔌  Consumables"],["shirts","👕  Shirts"],["tools","🔧  Field Tools"],["trucks","🚚  Trucks"]].map(([key,label])=>(
-          <button key={key} onClick={()=>setActiveTab(key)}
-            style={{ background:"none",border:"none",borderBottom:`3px solid ${activeTab===key?T.amber:"transparent"}`,
-              padding:"12px 20px",fontSize:13,fontWeight:activeTab===key?700:500,
-              color:activeTab===key?T.slate:T.muted,cursor:"pointer",
-              fontFamily:T.font,transition:"color .15s",marginBottom:-1 }}>
-            {label}
-          </button>
-        ))}
+        [{[
+  ["dashboard","▦  Dashboard"],
+  ["assets","📋  IT Assets"],
+  ["consumables","🔌  Consumables"],
+  ["shirts","👕  Shirts"],
+  ["tools","🔧  Field Tools"],
+  ["trucks","🚚  Trucks"]
+].map(([key,label])=>(
+  <button key={key} onClick={()=>setActiveTab(key)}
+    style={{ background:"none",border:"none",borderBottom:`3px solid ${activeTab===key?T.amber:"transparent"}`,
+      padding:"12px 20px",fontSize:13,fontWeight:activeTab===key?700:500,
+      color:activeTab===key?T.slate:T.muted,cursor:"pointer",
+      fontFamily:T.font,transition:"color .15s",marginBottom:-1 }}>
+    {label}
+  </button>
+))}
+        [
       </div>
 
       {/* Stats — assets tab only */}
@@ -2329,9 +2540,19 @@ function App() {
         )}
       </div>}
 
-      {activeTab==="consumables" ? <ConsumablesTab /> : activeTab==="shirts" ? <ShirtsTab /> : activeTab==="tools" ? <ToolsTab /> : activeTab==="trucks" ? <TrucksTab /> : (
-      <div style={{ padding:"20px 28px" }}>
-        {showLookup&&<div style={{ marginBottom:16 }}><QRLookup assets={assets} onSelect={a=>{ openDetail(a); setShowLookup(false); }} /></div>}
+      {activeTab==="dashboard" ? (
+  <DashboardTab
+    data={dashboard}
+    loading={dashboardLoading}
+    error={dashboardError}
+  />
+) : activeTab==="consumables" ? <ConsumablesTab />
+  : activeTab==="shirts" ? <ShirtsTab />
+  : activeTab==="tools" ? <ToolsTab />
+  : activeTab==="trucks" ? <TrucksTab />
+  : (
+    <div style={{ padding:"20px 28px" }}>
+      {showLookup&&<div style={{ marginBottom:16 }}><QRLookup assets={assets} onSelect={a=>{ openDetail(a); setShowLookup(false); }} /></div>}
 
         {/* Filters */}
         <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
