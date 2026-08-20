@@ -13,6 +13,7 @@ const dashboardRouter = require('./routes/dashboard');
 const assetsRouter = require('./routes/assets');
 const consumablesRouter = require('./routes/consumables');
 const shirtsRouter = require('./routes/shirts');
+const usersRouter = require('./routes/users');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/assets', assetsRouter);
 app.use('/api/consumables', consumablesRouter);
 app.use('/api/shirts', shirtsRouter);
+app.use('/api/users', usersRouter);
 
 async function initDB() {
   await pool.query(`
@@ -153,31 +155,6 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
-
-app.get('/api/users', auth, adminOnly, async (req, res) => {
-  const result = await pool.query('SELECT id, username, role, created_at FROM users ORDER BY id');
-  res.json(result.rows);
-});
-
-app.post('/api/users', auth, adminOnly, async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-    const hash = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      'INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role',
-      [username, hash, role || 'user']
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(400).json({ error: 'Username already exists' });
-  }
-});
-
-app.put('/api/users/:id/password', auth, adminOnly, async (req, res) => {
-  const hash = await bcrypt.hash(req.body.password, 10);
-  await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.params.id]);
-  res.json({ success: true });
 });
 
 // ── Tools ────────────────────────────────────────────────────────────────────
