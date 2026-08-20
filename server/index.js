@@ -14,6 +14,7 @@ const assetsRouter = require('./routes/assets');
 const consumablesRouter = require('./routes/consumables');
 const shirtsRouter = require('./routes/shirts');
 const usersRouter = require('./routes/users');
+const activityRouter = require('./routes/activity');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use('/api/assets', assetsRouter);
 app.use('/api/consumables', consumablesRouter);
 app.use('/api/shirts', shirtsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/activity', activityRouter);
 
 async function initDB() {
   await pool.query(`
@@ -243,15 +245,6 @@ app.put('/api/trucks/:id', auth, async (req, res) => {
 app.delete('/api/trucks/:id', auth, async (req, res) => {
   await pool.query('DELETE FROM trucks WHERE id = $1', [req.params.id]);
   res.json({ success: true });
-});
-
-app.get('/api/activity', auth, adminOnly, async (req, res) => {
-  const result = await pool.query(
-    `SELECT a.*, u.username FROM activity_log a
-     JOIN users u ON a.user_id = u.id
-     ORDER BY a.created_at DESC LIMIT 100`
-  );
-  res.json(result.rows);
 });
 
 app.get('/asset/:tag', (req, res) => {
