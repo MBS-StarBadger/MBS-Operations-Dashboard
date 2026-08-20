@@ -1,9 +1,9 @@
+require('dotenv').config();
 const assetRepository = require('./repositories/assetRepository');
 const activityRepository = require('./repositories/activityRepository');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-require('dotenv').config();
 
 const pool = require('./db/pool');
 

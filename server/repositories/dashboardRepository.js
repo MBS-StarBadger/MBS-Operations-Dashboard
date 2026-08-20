@@ -19,7 +19,7 @@ async function getSummary() {
     pool.query(
       `SELECT COUNT(*)::int AS count
        FROM assets
-       WHERE status = 'available'`
+       WHERE status = 'In Storage'`
     ),
     pool.query(
       `SELECT id, name, quantity, low_at
