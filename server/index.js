@@ -15,6 +15,7 @@ const consumablesRouter = require('./routes/consumables');
 const shirtsRouter = require('./routes/shirts');
 const usersRouter = require('./routes/users');
 const activityRouter = require('./routes/activity');
+const authRouter = require('./routes/auth');
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api/consumables', consumablesRouter);
 app.use('/api/shirts', shirtsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/activity', activityRouter);
+app.use('/api', authRouter);
 
 async function initDB() {
   await pool.query(`
@@ -139,25 +141,6 @@ async function initDB() {
     console.log('Shirts seeded');
   }
 }
-
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-    const user = result.rows[0];
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '12h' }
-    );
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 app.get('/api/tools', auth, async (req, res) => {

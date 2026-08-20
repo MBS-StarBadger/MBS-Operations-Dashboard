@@ -1,5 +1,14 @@
 const pool = require('../db/pool');
 
+async function findByUsername(username) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE username = $1',
+    [username]
+  );
+
+  return result.rows[0];
+}
+
 async function findAll() {
   const result = await pool.query(
     'SELECT id, username, role, created_at FROM users ORDER BY id'
@@ -29,6 +38,7 @@ async function updatePassword(id, password) {
 }
 
 module.exports = {
+  findByUsername,
   findAll,
   insert,
   updatePassword,
