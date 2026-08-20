@@ -12,6 +12,7 @@ const adminOnly = require('./middleware/adminOnly');
 const dashboardRouter = require('./routes/dashboard');
 const assetsRouter = require('./routes/assets');
 const consumablesRouter = require('./routes/consumables');
+const shirtsRouter = require('./routes/shirts');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/assets', assetsRouter);
 app.use('/api/consumables', consumablesRouter);
+app.use('/api/shirts', shirtsRouter);
 
 async function initDB() {
   await pool.query(`
@@ -176,20 +178,6 @@ app.put('/api/users/:id/password', auth, adminOnly, async (req, res) => {
   const hash = await bcrypt.hash(req.body.password, 10);
   await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.params.id]);
   res.json({ success: true });
-});
-
-app.get('/api/shirts', auth, async (req, res) => {
-  const result = await pool.query('SELECT * FROM shirts ORDER BY color, CASE size WHEN \'S\' THEN 1 WHEN \'M\' THEN 2 WHEN \'L\' THEN 3 WHEN \'XL\' THEN 4 WHEN \'2XL\' THEN 5 END');
-  res.json(result.rows);
-});
-
-app.put('/api/shirts/:id', auth, async (req, res) => {
-  const { quantity } = req.body;
-  const result = await pool.query(
-    'UPDATE shirts SET quantity=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
-    [Math.max(0, parseInt(quantity)||0), req.params.id]
-  );
-  res.json(result.rows[0]);
 });
 
 // ── Tools ────────────────────────────────────────────────────────────────────
