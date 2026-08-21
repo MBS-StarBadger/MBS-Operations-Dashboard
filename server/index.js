@@ -16,6 +16,7 @@ const shirtsRouter = require('./routes/shirts');
 const usersRouter = require('./routes/users');
 const activityRouter = require('./routes/activity');
 const authRouter = require('./routes/auth');
+const rmmRouter = require('./routes/rmm');
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/shirts', shirtsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api', authRouter);
+app.use('/api/rmm', rmmRouter);
 
 async function initDB() {
   await pool.query(`
@@ -113,6 +115,25 @@ async function initDB() {
       notes TEXT,
       updated_at TIMESTAMP DEFAULT NOW()
     );
+
+      CREATE TABLE IF NOT EXISTS rmm_devices (
+        id SERIAL PRIMARY KEY,
+        asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+        agent_id VARCHAR(100) UNIQUE NOT NULL,
+        hostname VARCHAR(100) NOT NULL,
+        os_name VARCHAR(100),
+        os_version VARCHAR(100),
+        architecture VARCHAR(50),
+        serial_number VARCHAR(100),
+        ip_address VARCHAR(64),
+        logged_in_user VARCHAR(100),
+        agent_version VARCHAR(50),
+        status VARCHAR(20) DEFAULT 'offline',
+        first_seen TIMESTAMP DEFAULT NOW(),
+        last_seen TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
   `);
   const existing = await pool.query('SELECT * FROM users WHERE role = $1', ['admin']);
   if (existing.rows.length === 0) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Miller Bros Solar — IT Asset Management</title>
+  <title>Miller Bros Solar — MBS Operations Dashboard</title>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -140,11 +140,94 @@ const C_COLOR = {
   "Fair":"#b45309","Poor":"#dc2626","For Parts / Scrap":"#6b7280",
 };
 
+const LIGHT_THEME = {
+  amber:"#f59e0b",
+  amberL:"#fef3c7",
+  amberD:"#d97706",
+
+  slate:"#1e293b",
+  muted:"#64748b",
+  subtle:"#94a3b8",
+
+  border:"#e2e8f0",
+  borderStrong:"#cbd5e1",
+
+  bg:"#f8fafc",
+  white:"#ffffff",
+  surface:"#ffffff",
+  surfaceAlt:"#f8fafc",
+  surfaceRaised:"#ffffff",
+
+  inputBg:"#ffffff",
+  hoverBg:"#f1f5f9",
+
+  success:"#15803d",
+  successBg:"#f0fdf4",
+  successBorder:"#86efac",
+
+  danger:"#dc2626",
+  dangerBg:"#fef2f2",
+  dangerBorder:"#fca5a5",
+
+  info:"#1d4ed8",
+  infoBg:"#eff6ff",
+  infoBorder:"#93c5fd",
+
+  warningBg:"#fffbeb",
+  warningBorder:"#fcd34d",
+  warningDivider:"#fde68a",
+  warningText:"#92400e",
+
+  shadow:"rgba(15,23,42,.08)",
+  shadowStrong:"rgba(15,23,42,.16)",
+};
+
+const DARK_THEME = {
+  amber:"#f59e0b",
+  amberL:"#3b2a08",
+  amberD:"#fbbf24",
+
+  slate:"#e5e7eb",
+  muted:"#94a3b8",
+  subtle:"#64748b",
+
+  border:"#334155",
+  borderStrong:"#475569",
+
+  bg:"#0f172a",
+  white:"#111827",
+  surface:"#111827",
+  surfaceAlt:"#172033",
+  surfaceRaised:"#1e293b",
+
+  inputBg:"#172033",
+  hoverBg:"#1e293b",
+
+  success:"#4ade80",
+  successBg:"#10261a",
+  successBorder:"#166534",
+
+  danger:"#f87171",
+  dangerBg:"#32171a",
+  dangerBorder:"#991b1b",
+
+  info:"#60a5fa",
+  infoBg:"#12233f",
+  infoBorder:"#1d4ed8",
+
+  warningBg:"#2a210f",
+  warningBorder:"#92400e",
+  warningDivider:"#78350f",
+  warningText:"#fbbf24",
+
+  shadow:"rgba(0,0,0,.22)",
+  shadowStrong:"rgba(0,0,0,.42)",
+};
+
 const T = {
-  amber:"#f59e0b", amberL:"#fef3c7", amberD:"#d97706",
-  slate:"#1e293b", muted:"#64748b", border:"#e2e8f0",
-  bg:"#f8fafc", white:"#ffffff",
-  font:"'DM Sans', sans-serif", mono:"'DM Mono', monospace",
+  ...LIGHT_THEME,
+  font:"'DM Sans', sans-serif",
+  mono:"'DM Mono', monospace",
 };
 
 const genTag   = n   => `MBS-${String(n).padStart(4,"0")}`;
@@ -180,11 +263,19 @@ async function compressImage(file, maxPx=1200, quality=0.75) {
 }
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
-const iBase = {
-  width:"100%", padding:"8px 11px", fontSize:14, fontFamily:T.font,
-  border:`1.5px solid ${T.border}`, borderRadius:6, outline:"none",
-  background:T.white, color:T.slate, transition:"border-color .15s",
-};
+const getIBase = () => ({
+  width:"100%",
+  padding:"9px 12px",
+  fontSize:14,
+  fontFamily:T.font,
+  border:`1.5px solid ${T.border}`,
+  borderRadius:9,
+  outline:"none",
+  background:T.inputBg,
+  color:T.slate,
+  boxShadow:`0 1px 3px ${T.shadow}`,
+  transition:"border-color .15s, box-shadow .15s, background .15s",
+});
 function FWrap({ label, children }) {
   return <label style={{ display:"flex",flexDirection:"column",gap:5 }}>
     <span style={{ fontSize:11,fontWeight:700,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>{label}</span>
@@ -194,16 +285,16 @@ function FWrap({ label, children }) {
 function TInput({ label, ...p }) {
   const [f,sf]=useState(false);
   return <FWrap label={label}><input {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)}
-    style={{...iBase,borderColor:f?T.amber:T.border,...(p.style||{})}} /></FWrap>;
+    style={{...getIBase(),borderColor:f?T.amber:T.border,...(p.style||{})}} /></FWrap>;
 }
 function TSelect({ label, opts, ...p }) {
-  return <FWrap label={label}><select {...p} style={{...iBase,cursor:"pointer",...(p.style||{})}}>
+  return <FWrap label={label}><select {...p} style={{...getIBase(),cursor:"pointer",...(p.style||{})}}>
     {opts.map(o=><option key={o} value={o}>{o||"— None —"}</option>)}</select></FWrap>;
 }
 function TArea({ label, ...p }) {
   const [f,sf]=useState(false);
   return <FWrap label={label}><textarea {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)}
-    style={{...iBase,minHeight:80,resize:"vertical",borderColor:f?T.amber:T.border}} /></FWrap>;
+    style={{...getIBase(),minHeight:80,resize:"vertical",borderColor:f?T.amber:T.border}} /></FWrap>;
 }
 function Badge({ status }) {
   const c=S_COLOR[status]||{text:"#6b7280",bg:"#f9fafb",ring:"#d1d5db"};
@@ -218,30 +309,95 @@ function CondPill({ condition }) {
 }
 function QRPill({ linked }) {
   return linked
-    ? <span style={{ fontSize:11,fontWeight:700,color:"#15803d",background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:20,padding:"2px 9px" }}>▣ QR Linked</span>
-    : <span style={{ fontSize:11,fontWeight:700,color:"#b45309",background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:20,padding:"2px 9px" }}>▢ No QR Tag</span>;
+    ? <span style={{
+        fontSize:11,fontWeight:700,
+        color:T.success,
+        background:T.successBg,
+        border:`1.5px solid ${T.successBorder}`,
+        borderRadius:20,padding:"3px 10px"
+      }}>▣ QR Linked</span>
+    : <span style={{
+        fontSize:11,fontWeight:700,
+        color:T.warningText,
+        background:T.warningBg,
+        border:`1.5px solid ${T.warningBorder}`,
+        borderRadius:20,padding:"3px 10px"
+      }}>▢ No QR Tag</span>;
 }
 function Btn({ variant="primary", sm, children, ...p }) {
   const styles = {
-    primary:   { background:T.amber,   color:"#fff",    border:"none",                   boxShadow:`0 1px 4px ${T.amber}55` },
-    secondary: { background:T.white,   color:T.muted,   border:`1.5px solid ${T.border}`,boxShadow:"none" },
-    danger:    { background:T.white,   color:"#dc2626", border:"1.5px solid #fca5a5",    boxShadow:"none" },
-    success:   { background:"#16a34a", color:"#fff",    border:"none",                   boxShadow:"none" },
-    amber_out: { background:T.white,   color:T.amberD,  border:`1.5px solid ${T.amber}`, boxShadow:"none" },
-    blue_out:  { background:T.white,   color:"#1d4ed8", border:"1.5px solid #93c5fd",    boxShadow:"none" },
+    primary: {
+      background:"linear-gradient(145deg,#fbbf24,#f59e0b,#ea580c)",
+      color:"#fff",
+      border:"1px solid rgba(255,255,255,.18)",
+      boxShadow:"0 3px 9px rgba(245,158,11,.22)"
+    },
+    secondary: {
+      background:T.surfaceRaised,
+      color:T.slate,
+      border:`1.5px solid ${T.border}`,
+      boxShadow:`0 2px 5px ${T.shadow}`
+    },
+    danger: {
+      background:T.dangerBg,
+      color:T.danger,
+      border:`1.5px solid ${T.dangerBorder}`,
+      boxShadow:"none"
+    },
+    success: {
+      background:T.success,
+      color:"#fff",
+      border:"none",
+      boxShadow:"none"
+    },
+    amber_out: {
+      background:T.surface,
+      color:T.amberD,
+      border:`1.5px solid ${T.amber}`,
+      boxShadow:"none"
+    },
+    blue_out: {
+      background:T.infoBg,
+      color:T.info,
+      border:`1.5px solid ${T.infoBorder}`,
+      boxShadow:"none"
+    },
   };
-  return <button {...p} style={{ ...styles[variant], borderRadius:7,
-    padding:sm?"5px 12px":"9px 18px", fontSize:sm?12:13, fontWeight:600,
-    cursor:"pointer", fontFamily:T.font, transition:"opacity .15s", ...(p.style||{}) }}>{children}</button>;
+
+  return (
+    <button
+      {...p}
+      style={{
+        ...styles[variant],
+        borderRadius:10,
+        padding:sm?"6px 12px":"9px 18px",
+        fontSize:sm?12:13,
+        fontWeight:700,
+        cursor:"pointer",
+        fontFamily:T.font,
+        transition:"transform .15s, opacity .15s, box-shadow .15s",
+        ...(p.style||{})
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 function Modal({ title, sub, onClose, wide, children }) {
   return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(15,23,42,.45)",
+    <div style={{ position:"fixed",inset:0,background:"rgba(2,6,23,.68)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:20 }}
       onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div style={{ background:T.white,borderRadius:12,width:"100%",maxWidth:wide?800:540,
-        maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.18)",
-        border:`1px solid ${T.border}` }}>
+      <div style={{
+        background:T.surfaceRaised,
+        borderRadius:16,
+        width:"100%",
+        maxWidth:wide?800:540,
+        maxHeight:"92vh",
+        overflowY:"auto",
+        boxShadow:`0 24px 64px ${T.shadowStrong}`,
+        border:`1px solid ${T.borderStrong}`
+      }}>
         {(title||sub) && (
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",
             padding:"20px 24px 16px",borderBottom:`1.5px solid ${T.border}` }}>
@@ -631,7 +787,7 @@ function AssetForm({ initial, nextTag, onSave, onCancel, allAssets=[] }) {
           <FWrap label="Asset Tag">
             <input value={f.tag} onChange={e=>s("tag",e.target.value)}
               onFocus={()=>{}} onBlur={()=>{}}
-              style={{...iBase, borderColor: allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id))?"#dc2626":T.border}} />
+              style={{...getIBase(), borderColor: allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id))?"#dc2626":T.border}} />
           </FWrap>
           {allAssets.find(a=>a.tag===f.tag.trim()&&a.id!==(initial&&initial.id))&&(
             <div style={{ fontSize:12,color:"#dc2626",fontWeight:600,background:"#fef2f2",
@@ -665,7 +821,7 @@ function AssetForm({ initial, nextTag, onSave, onCancel, allAssets=[] }) {
               <input value={(f.entraName||"").replace(/^(MBS-LT-|MBS-DT-)/,"")}
                 onChange={e=>s("entraName",(f.type==="Laptop"?"MBS-LT-":"MBS-DT-")+e.target.value)}
                 placeholder="e.g. 00042"
-                style={{...iBase,flex:1}} />
+                style={{...getIBase(),flex:1}} />
             </div>
             {f.entraName&&<div style={{ fontSize:11,color:T.muted }}>Full name: <strong style={{fontFamily:T.mono,color:T.slate}}>{f.entraName}</strong></div>}
             {f.entraName&&allAssets.find(a=>a.entraName&&a.entraName===f.entraName.trim()&&a.id!==(initial&&initial.id))&&(
@@ -686,7 +842,7 @@ function AssetForm({ initial, nextTag, onSave, onCancel, allAssets=[] }) {
           </label>
           {!f.warrantyExpired && (
             <input type="date" value={f.warrantyExpiry} onChange={e=>s("warrantyExpiry",e.target.value)}
-              style={{...iBase}} />
+              style={{...getIBase()}} />
           )}
           {f.warrantyExpired && (
             <div style={{ fontSize:12,color:"#dc2626",background:"#fef2f2",border:"1px solid #fca5a5",
@@ -809,7 +965,7 @@ function AssetDetail({ asset, onEdit, onCheckin, onShipping, onLinkQR, onDelete 
           border:"1.5px solid #93c5fd",borderRadius:20,padding:"2px 9px" }}>📷 {totalPhotos} photo{totalPhotos>1?"s":""}</span>}
         {asset.warrantyExpired
           ? <span style={{ fontSize:11,fontWeight:700,color:"#dc2626",background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:20,padding:"2px 9px" }}>⚠ Warranty Expired</span>
-          : soonExp(asset.warrantyExpiry)&&<span style={{ fontSize:11,fontWeight:700,color:"#b45309",background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:20,padding:"2px 9px" }}>⚠ Warranty Expiring Soon</span>}
+          : soonExp(asset.warrantyExpiry)&&<span style={{ fontSize:11,fontWeight:700,color:"#b45309",background:"#fffbeb",border:`1.5px solid ${T.warningBorder}`,borderRadius:20,padding:"2px 9px" }}>⚠ Warranty Expiring Soon</span>}
       </div>
 
       {/* Info grid */}
@@ -1012,7 +1168,7 @@ function QRLookup({ assets, onSelect }) {
         <input value={val} onChange={e=>setVal(e.target.value)}
           onKeyDown={e=>e.key==="Enter"&&doLookup(val)}
           placeholder="Type tag or QR value… (e.g. MBS-1001)"
-          style={{ ...iBase,flex:1 }} />
+          style={{ ...getIBase(),flex:1 }} />
         {!scanning
           ? <Btn variant="amber_out" onClick={startCamera}>📷 Scan</Btn>
           : <Btn variant="secondary" onClick={stopCamera}>Stop</Btn>
@@ -1133,7 +1289,7 @@ function ConsumablesTab() {
           <div style={{ fontSize:28,fontWeight:700,color:T.slate,fontFamily:T.mono }}>{totalQty}</div>
         </div>
         {lowCount>0&&(
-          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+          <div style={{ background:"#fffbeb",border:`1.5px solid ${T.warningBorder}`,borderRadius:10,
             padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
             <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Low Stock</div>
             <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{lowCount}</div>
@@ -1153,13 +1309,13 @@ function ConsumablesTab() {
               <input value={newName} onChange={e=>setNewName(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&addItem()}
                 placeholder="e.g. USB-C to USB-A Adapters"
-                style={{...iBase}} autoFocus />
+                style={{...getIBase()}} autoFocus />
             </FWrap>
           </div>
           <div style={{ width:130 }}>
             <FWrap label="Low Stock Alert At">
               <input type="number" min="0" value={newLow} onChange={e=>setNewLow(e.target.value)}
-                style={{...iBase}} />
+                style={{...getIBase()}} />
             </FWrap>
           </div>
           <div style={{ display:"flex",gap:8 }}>
@@ -1196,7 +1352,7 @@ function ConsumablesTab() {
                     {isEditing ? (
                       <input value={item.name}
                         onChange={e=>updateField(item.id,"name",e.target.value)}
-                        style={{...iBase,fontSize:14,fontWeight:600,width:"100%"}} />
+                        style={{...getIBase(),fontSize:14,fontWeight:600,width:"100%"}} />
                     ) : (
                       <span style={{ display:"flex",alignItems:"center",gap:8 }}>
                         {item.name}
@@ -1233,7 +1389,7 @@ function ConsumablesTab() {
                     {isEditing ? (
                       <input type="number" min="0" value={item.lowAt}
                         onChange={e=>updateField(item.id,"lowAt",parseInt(e.target.value)||0)}
-                        style={{...iBase,width:80,textAlign:"center"}} />
+                        style={{...getIBase(),width:80,textAlign:"center"}} />
                     ) : (
                       <span style={{ fontSize:13,color:T.muted }}>
                         {item.lowAt>0 ? `Alert at ${item.lowAt}` : <span style={{color:"#d1d5db"}}>—</span>}
@@ -1247,7 +1403,7 @@ function ConsumablesTab() {
                       <input value={item.notes}
                         onChange={e=>updateField(item.id,"notes",e.target.value)}
                         placeholder="Location, brand, specs…"
-                        style={{...iBase,fontSize:13}} />
+                        style={{...getIBase(),fontSize:13}} />
                     ) : (
                       <span style={{ fontSize:13,color:item.notes?T.muted:"#d1d5db",fontStyle:item.notes?"normal":"italic" }}>
                         {item.notes||"—"}
@@ -1366,7 +1522,7 @@ function ShirtsTab() {
           </div>
         ))}
         {lowStockCount>0&&(
-          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+          <div style={{ background:"#fffbeb",border:`1.5px solid ${T.warningBorder}`,borderRadius:10,
             padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
             <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Low Stock</div>
             <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{lowStockCount}</div>
@@ -1507,7 +1663,7 @@ function LoginScreen({ onLogin }) {
             boxShadow:`0 2px 8px ${T.amber}55` }}>☀</div>
           <div>
             <div style={{ fontSize:17, fontWeight:700, color:T.slate }}>Miller Bros Solar</div>
-            <div style={{ fontSize:11, color:T.muted, letterSpacing:.8, textTransform:"uppercase" }}>IT Asset Management</div>
+            <div style={{ fontSize:11, color:T.muted, letterSpacing:.8, textTransform:"uppercase" }}>MBS Operations Dashboard</div>
           </div>
         </div>
 
@@ -1521,7 +1677,7 @@ function LoginScreen({ onLogin }) {
             <FWrap label="Password">
               <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-                style={{...iBase}} />
+                style={{...getIBase()}} />
             </FWrap>
           </div>
           {error && (
@@ -1639,21 +1795,21 @@ function ToolsTab() {
           padding:"16px 20px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end" }}>
           <div style={{ flex:2,minWidth:180 }}>
             <FWrap label="Tool Name"><input value={nf.name} onChange={e=>setNf({...nf,name:e.target.value})}
-              onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="e.g. DeWalt 20V Impact Driver" style={{...iBase}} autoFocus /></FWrap>
+              onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="e.g. DeWalt 20V Impact Driver" style={{...getIBase()}} autoFocus /></FWrap>
           </div>
           <div style={{ width:150 }}>
-            <FWrap label="Category"><select value={nf.category} onChange={e=>setNf({...nf,category:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+            <FWrap label="Category"><select value={nf.category} onChange={e=>setNf({...nf,category:e.target.value})} style={{...getIBase(),cursor:"pointer"}}>
               {TOOL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select></FWrap>
           </div>
           <div style={{ width:120 }}>
-            <FWrap label="Tag / ID"><input value={nf.tool_tag} onChange={e=>setNf({...nf,tool_tag:e.target.value})} placeholder="optional" style={{...iBase}} /></FWrap>
+            <FWrap label="Tag / ID"><input value={nf.tool_tag} onChange={e=>setNf({...nf,tool_tag:e.target.value})} placeholder="optional" style={{...getIBase()}} /></FWrap>
           </div>
           <div style={{ width:130 }}>
-            <FWrap label="Condition"><select value={nf.condition} onChange={e=>setNf({...nf,condition:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+            <FWrap label="Condition"><select value={nf.condition} onChange={e=>setNf({...nf,condition:e.target.value})} style={{...getIBase(),cursor:"pointer"}}>
               {CONDITIONS.map(c=><option key={c} value={c}>{c}</option>)}</select></FWrap>
           </div>
           <div style={{ width:150 }}>
-            <FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+            <FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...getIBase(),cursor:"pointer"}}>
               {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></FWrap>
           </div>
           <div style={{ display:"flex",gap:8 }}>
@@ -1681,35 +1837,35 @@ function ToolsTab() {
               return (
                 <tr key={item.id} style={{ borderBottom:i<shown.length-1?`1px solid ${T.border}`:"none" }}>
                   <td style={{ padding:"12px 16px",fontSize:14,fontWeight:600,color:T.slate }}>
-                    {isEditing ? <input value={item.name} onChange={e=>updateField(item.id,"name",e.target.value)} style={{...iBase,fontSize:14,fontWeight:600}} /> : item.name}
+                    {isEditing ? <input value={item.name} onChange={e=>updateField(item.id,"name",e.target.value)} style={{...getIBase(),fontSize:14,fontWeight:600}} /> : item.name}
                   </td>
                   <td style={{ padding:"12px 16px" }}>
                     {isEditing ? (
-                      <select value={item.category||""} onChange={e=>updateField(item.id,"category",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                      <select value={item.category||""} onChange={e=>updateField(item.id,"category",e.target.value)} style={{...getIBase(),cursor:"pointer"}}>
                         {TOOL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select>
                     ) : <span style={{ fontSize:13,color:T.muted }}>{item.category||"—"}</span>}
                   </td>
                   <td style={{ padding:"12px 16px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
-                    {isEditing ? <input value={item.tool_tag||""} onChange={e=>updateField(item.id,"tool_tag",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.tool_tag||"—")}
+                    {isEditing ? <input value={item.tool_tag||""} onChange={e=>updateField(item.id,"tool_tag",e.target.value)} style={{...getIBase(),fontSize:13,width:90}} /> : (item.tool_tag||"—")}
                   </td>
                   <td style={{ padding:"12px 16px" }}>
                     {isEditing ? (
-                      <select value={item.condition||""} onChange={e=>updateField(item.id,"condition",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                      <select value={item.condition||""} onChange={e=>updateField(item.id,"condition",e.target.value)} style={{...getIBase(),cursor:"pointer"}}>
                         {CONDITIONS.map(c=><option key={c} value={c}>{c}</option>)}</select>
                     ) : (item.condition ? <CondPill condition={item.condition} /> : <span style={{color:"#d1d5db"}}>—</span>)}
                   </td>
                   <td style={{ padding:"12px 16px" }}>
                     {isEditing ? (
-                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...getIBase(),cursor:"pointer"}}>
                         {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select>
                     ) : <Badge status={item.status} />}
                   </td>
                   <td style={{ padding:"12px 16px" }}>
-                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...getIBase(),fontSize:13}} /> :
                       <span style={{ fontSize:13,color:item.assigned_to?T.slate:"#d1d5db" }}>{item.assigned_to||"—"}</span>}
                   </td>
                   <td style={{ padding:"12px 16px" }}>
-                    {isEditing ? <input value={item.notes||""} onChange={e=>updateField(item.id,"notes",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                    {isEditing ? <input value={item.notes||""} onChange={e=>updateField(item.id,"notes",e.target.value)} style={{...getIBase(),fontSize:13}} /> :
                       <span style={{ fontSize:13,color:item.notes?T.muted:"#d1d5db",fontStyle:item.notes?"normal":"italic" }}>{item.notes||"—"}</span>}
                   </td>
                   <td style={{ padding:"12px 16px",whiteSpace:"nowrap" }}>
@@ -1815,7 +1971,7 @@ function TrucksTab() {
           <div style={{ fontSize:28,fontWeight:700,color:"#15803d",fontFamily:T.mono }}>{items.filter(i=>i.status==="In Service").length}</div>
         </div>
         {dueSoon>0&&(
-          <div style={{ background:"#fffbeb",border:"1.5px solid #fcd34d",borderRadius:10,
+          <div style={{ background:"#fffbeb",border:`1.5px solid ${T.warningBorder}`,borderRadius:10,
             padding:"12px 20px",display:"flex",flexDirection:"column",gap:2,minWidth:130 }}>
             <div style={{ fontSize:10,fontWeight:700,color:"#b45309",letterSpacing:.7,textTransform:"uppercase" }}>Service Due ≤30d</div>
             <div style={{ fontSize:28,fontWeight:700,color:"#b45309",fontFamily:T.mono }}>{dueSoon}</div>
@@ -1830,16 +1986,16 @@ function TrucksTab() {
       {addOpen&&(
         <div style={{ background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:10,
           padding:"16px 20px",marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end" }}>
-          <div style={{ width:120 }}><FWrap label="Truck ID"><input value={nf.truck_tag} onChange={e=>setNf({...nf,truck_tag:e.target.value})} placeholder="MBS-T01" style={{...iBase}} autoFocus /></FWrap></div>
-          <div style={{ width:90 }}><FWrap label="Year"><input value={nf.year} onChange={e=>setNf({...nf,year:e.target.value})} placeholder="2022" style={{...iBase}} /></FWrap></div>
-          <div style={{ flex:1,minWidth:160 }}><FWrap label="Make / Model"><input value={nf.make_model} onChange={e=>setNf({...nf,make_model:e.target.value})} placeholder="Ford F-250" style={{...iBase}} /></FWrap></div>
-          <div style={{ width:110 }}><FWrap label="Plate"><input value={nf.plate} onChange={e=>setNf({...nf,plate:e.target.value})} style={{...iBase}} /></FWrap></div>
-          <div style={{ width:150 }}><FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...iBase,cursor:"pointer"}}>
+          <div style={{ width:120 }}><FWrap label="Truck ID"><input value={nf.truck_tag} onChange={e=>setNf({...nf,truck_tag:e.target.value})} placeholder="MBS-T01" style={{...getIBase()}} autoFocus /></FWrap></div>
+          <div style={{ width:90 }}><FWrap label="Year"><input value={nf.year} onChange={e=>setNf({...nf,year:e.target.value})} placeholder="2022" style={{...getIBase()}} /></FWrap></div>
+          <div style={{ flex:1,minWidth:160 }}><FWrap label="Make / Model"><input value={nf.make_model} onChange={e=>setNf({...nf,make_model:e.target.value})} placeholder="Ford F-250" style={{...getIBase()}} /></FWrap></div>
+          <div style={{ width:110 }}><FWrap label="Plate"><input value={nf.plate} onChange={e=>setNf({...nf,plate:e.target.value})} style={{...getIBase()}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Status"><select value={nf.status} onChange={e=>setNf({...nf,status:e.target.value})} style={{...getIBase(),cursor:"pointer"}}>
             {TRUCK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></FWrap></div>
-          <div style={{ width:150 }}><FWrap label="Assigned Driver / Crew"><input value={nf.assigned_to} onChange={e=>setNf({...nf,assigned_to:e.target.value})} style={{...iBase}} /></FWrap></div>
-          <div style={{ width:110 }}><FWrap label="Mileage"><input value={nf.mileage} onChange={e=>setNf({...nf,mileage:e.target.value})} style={{...iBase}} /></FWrap></div>
-          <div style={{ width:150 }}><FWrap label="Last Service"><input type="date" value={nf.last_service} onChange={e=>setNf({...nf,last_service:e.target.value})} style={{...iBase}} /></FWrap></div>
-          <div style={{ width:150 }}><FWrap label="Next Service Due"><input type="date" value={nf.next_service} onChange={e=>setNf({...nf,next_service:e.target.value})} style={{...iBase}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Assigned Driver / Crew"><input value={nf.assigned_to} onChange={e=>setNf({...nf,assigned_to:e.target.value})} style={{...getIBase()}} /></FWrap></div>
+          <div style={{ width:110 }}><FWrap label="Mileage"><input value={nf.mileage} onChange={e=>setNf({...nf,mileage:e.target.value})} style={{...getIBase()}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Last Service"><input type="date" value={nf.last_service} onChange={e=>setNf({...nf,last_service:e.target.value})} style={{...getIBase()}} /></FWrap></div>
+          <div style={{ width:150 }}><FWrap label="Next Service Due"><input type="date" value={nf.next_service} onChange={e=>setNf({...nf,next_service:e.target.value})} style={{...getIBase()}} /></FWrap></div>
           <div style={{ display:"flex",gap:8 }}>
             <Btn variant="secondary" onClick={()=>setAddOpen(false)}>Cancel</Btn>
             <Btn variant="primary" onClick={addItem} style={{ opacity:(nf.truck_tag.trim()||nf.make_model.trim())?1:.4 }}>Add</Btn>
@@ -1869,36 +2025,36 @@ function TrucksTab() {
                 <tr key={item.id} style={{ borderBottom:i<items.length-1?`1px solid ${T.border}`:"none",
                   background:overdue?"#fef2f2":soon?"#fffdf4":"transparent" }}>
                   <td style={{ padding:"12px 14px",fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.slate }}>
-                    {isEditing ? <input value={item.truck_tag||""} onChange={e=>updateField(item.id,"truck_tag",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.truck_tag||"—")}
+                    {isEditing ? <input value={item.truck_tag||""} onChange={e=>updateField(item.id,"truck_tag",e.target.value)} style={{...getIBase(),fontSize:13,width:90}} /> : (item.truck_tag||"—")}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:13,color:T.muted }}>
-                    {isEditing ? <input value={item.year||""} onChange={e=>updateField(item.id,"year",e.target.value)} style={{...iBase,fontSize:13,width:70}} /> : (item.year||"—")}
+                    {isEditing ? <input value={item.year||""} onChange={e=>updateField(item.id,"year",e.target.value)} style={{...getIBase(),fontSize:13,width:70}} /> : (item.year||"—")}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:14,fontWeight:600,color:T.slate }}>
-                    {isEditing ? <input value={item.make_model||""} onChange={e=>updateField(item.id,"make_model",e.target.value)} style={{...iBase,fontSize:14,fontWeight:600}} /> : (item.make_model||"—")}
+                    {isEditing ? <input value={item.make_model||""} onChange={e=>updateField(item.id,"make_model",e.target.value)} style={{...getIBase(),fontSize:14,fontWeight:600}} /> : (item.make_model||"—")}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
-                    {isEditing ? <input value={item.plate||""} onChange={e=>updateField(item.id,"plate",e.target.value)} style={{...iBase,fontSize:13,width:90}} /> : (item.plate||"—")}
+                    {isEditing ? <input value={item.plate||""} onChange={e=>updateField(item.id,"plate",e.target.value)} style={{...getIBase(),fontSize:13,width:90}} /> : (item.plate||"—")}
                   </td>
                   <td style={{ padding:"12px 14px" }}>
                     {isEditing ? (
-                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...iBase,cursor:"pointer"}}>
+                      <select value={item.status||""} onChange={e=>updateField(item.id,"status",e.target.value)} style={{...getIBase(),cursor:"pointer"}}>
                         {TRUCK_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select>
                     ) : <Badge status={item.status} />}
                   </td>
                   <td style={{ padding:"12px 14px" }}>
-                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...iBase,fontSize:13}} /> :
+                    {isEditing ? <input value={item.assigned_to||""} onChange={e=>updateField(item.id,"assigned_to",e.target.value)} style={{...getIBase(),fontSize:13}} /> :
                       <span style={{ fontSize:13,color:item.assigned_to?T.slate:"#d1d5db" }}>{item.assigned_to||"—"}</span>}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:13,fontFamily:T.mono,color:T.muted }}>
-                    {isEditing ? <input value={item.mileage||""} onChange={e=>updateField(item.id,"mileage",e.target.value)} style={{...iBase,fontSize:13,width:80}} /> :
+                    {isEditing ? <input value={item.mileage||""} onChange={e=>updateField(item.id,"mileage",e.target.value)} style={{...getIBase(),fontSize:13,width:80}} /> :
                       (item.mileage!=null ? Number(item.mileage).toLocaleString() : "—")}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:13,color:T.muted }}>
-                    {isEditing ? <input type="date" value={fmtDate(item.last_service)} onChange={e=>updateField(item.id,"last_service",e.target.value)} style={{...iBase,fontSize:13}} /> : (fmtDate(item.last_service)||"—")}
+                    {isEditing ? <input type="date" value={fmtDate(item.last_service)} onChange={e=>updateField(item.id,"last_service",e.target.value)} style={{...getIBase(),fontSize:13}} /> : (fmtDate(item.last_service)||"—")}
                   </td>
                   <td style={{ padding:"12px 14px",fontSize:13 }}>
-                    {isEditing ? <input type="date" value={fmtDate(item.next_service)} onChange={e=>updateField(item.id,"next_service",e.target.value)} style={{...iBase,fontSize:13}} /> : (
+                    {isEditing ? <input type="date" value={fmtDate(item.next_service)} onChange={e=>updateField(item.id,"next_service",e.target.value)} style={{...getIBase(),fontSize:13}} /> : (
                       item.next_service ? (
                         <span style={{ display:"flex",alignItems:"center",gap:6,color:overdue?"#dc2626":soon?"#b45309":T.muted,fontWeight:overdue||soon?700:400 }}>
                           {fmtDate(item.next_service)}
@@ -1934,6 +2090,390 @@ function TrucksTab() {
   );
 }
 
+
+
+function RMMTab() {
+  const [summary,setSummary] = useState(null);
+  const [devices,setDevices] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+
+  useEffect(()=>{
+    let cancelled = false;
+
+    (async()=>{
+      setLoading(true);
+      setError("");
+
+      try {
+        const [summaryData,deviceData] = await Promise.all([
+          window.api.get('/api/rmm'),
+          window.api.get('/api/rmm/devices'),
+        ]);
+
+        if (!cancelled) {
+          setSummary(summaryData);
+          setDevices(deviceData);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Unable to load RMM data");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return ()=> {
+      cancelled = true;
+    };
+  },[]);
+
+  if (loading) {
+    return (
+      <div style={{ padding:40,color:T.muted }}>
+        Loading RMM…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{
+        padding:24,
+        margin:24,
+        background:T.dangerBg,
+        color:T.danger,
+        border:`1.5px solid ${T.dangerBorder}`,
+        borderRadius:12
+      }}>
+        {error}
+      </div>
+    );
+  }
+
+  const stats = summary?.devices || {
+    total:0,
+    online:0,
+    offline:0,
+    alerts:0,
+  };
+
+  return (
+    <div style={{
+      padding:"24px 28px",
+      background:T.bg,
+      minHeight:"calc(100vh - 120px)"
+    }}>
+      <div style={{
+        display:"flex",
+        alignItems:"center",
+        justifyContent:"space-between",
+        gap:16,
+        marginBottom:22,
+        flexWrap:"wrap"
+      }}>
+        <div style={{
+          display:"flex",
+          alignItems:"center",
+          gap:14
+        }}>
+          <div style={{
+            width:50,
+            height:50,
+            borderRadius:15,
+            background:"linear-gradient(145deg,#818cf8,#4f46e5,#312e81)",
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+            color:"#fff",
+            fontSize:24,
+            fontWeight:800,
+            boxShadow:"0 5px 16px rgba(79,70,229,.28)"
+          }}>
+            ⌁
+          </div>
+
+          <div>
+            <div style={{
+              fontSize:22,
+              fontWeight:700,
+              color:T.slate
+            }}>
+              Remote Monitoring & Management
+            </div>
+
+            <div style={{
+              fontSize:13,
+              color:T.muted,
+              marginTop:3
+            }}>
+              Administrative endpoint inventory, health and monitoring
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
+        gap:14,
+        marginBottom:20
+      }}>
+        {[
+          ["Managed Devices",stats.total,"#4f46e5","#eef2ff"],
+          ["Online",stats.online,T.success,T.successBg],
+          ["Offline",stats.offline,T.danger,T.dangerBg],
+          ["Active Alerts",stats.alerts,T.warningText,T.warningBg],
+        ].map(([label,value,color,tint])=>(
+          <div key={label} style={{
+            background:T.surfaceRaised,
+            border:`1.5px solid ${T.border}`,
+            borderRadius:14,
+            padding:"18px 20px",
+            boxShadow:`0 3px 10px ${T.shadow}`,
+            position:"relative",
+            overflow:"hidden"
+          }}>
+            <div style={{
+              position:"absolute",
+              right:-18,
+              top:-18,
+              width:76,
+              height:76,
+              borderRadius:"50%",
+              background:tint,
+              opacity:.7
+            }} />
+
+            <div style={{
+              fontSize:11,
+              fontWeight:700,
+              color:T.muted,
+              textTransform:"uppercase",
+              letterSpacing:.7,
+              position:"relative"
+            }}>
+              {label}
+            </div>
+
+            <div style={{
+              fontSize:30,
+              fontWeight:700,
+              color,
+              fontFamily:T.mono,
+              marginTop:6,
+              position:"relative"
+            }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        background:T.surfaceRaised,
+        border:`1.5px solid ${T.border}`,
+        borderRadius:14,
+        overflow:"hidden",
+        boxShadow:`0 3px 10px ${T.shadow}`
+      }}>
+        <div style={{
+          padding:"15px 18px",
+          borderBottom:`1px solid ${T.border}`,
+          display:"flex",
+          alignItems:"center",
+          justifyContent:"space-between",
+          gap:12
+        }}>
+          <div>
+            <div style={{
+              fontSize:15,
+              fontWeight:700,
+              color:T.slate
+            }}>
+              Managed Endpoints
+            </div>
+            <div style={{
+              fontSize:11,
+              color:T.muted,
+              marginTop:2
+            }}>
+              Devices enrolled in MBS Operations Dashboard
+            </div>
+          </div>
+
+          <span style={{
+            fontSize:11,
+            fontWeight:700,
+            color:T.muted,
+            background:T.surface,
+            border:`1px solid ${T.border}`,
+            borderRadius:20,
+            padding:"4px 9px"
+          }}>
+            {devices.length} devices
+          </span>
+        </div>
+
+        {devices.length === 0 ? (
+          <div style={{
+            padding:36,
+            textAlign:"center"
+          }}>
+            <div style={{
+              fontSize:28,
+              marginBottom:10
+            }}>
+              ◇
+            </div>
+            <div style={{
+              fontSize:15,
+              fontWeight:700,
+              color:T.slate
+            }}>
+              No managed endpoints yet
+            </div>
+            <div style={{
+              fontSize:12,
+              color:T.muted,
+              marginTop:5
+            }}>
+              The RMM backend is ready for the first enrolled test device.
+            </div>
+          </div>
+        ) : (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{
+              width:"100%",
+              borderCollapse:"collapse"
+            }}>
+              <thead>
+                <tr style={{
+                  background:T.surfaceAlt,
+                  borderBottom:`1px solid ${T.border}`
+                }}>
+                  {[
+                    "Hostname",
+                    "Status",
+                    "Asset",
+                    "OS",
+                    "User",
+                    "IP Address",
+                    "Last Seen"
+                  ].map(h=>(
+                    <th key={h} style={{
+                      textAlign:"left",
+                      padding:"10px 14px",
+                      fontSize:10,
+                      fontWeight:700,
+                      color:T.muted,
+                      letterSpacing:.7,
+                      textTransform:"uppercase"
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody>
+                {devices.map((device,index)=> {
+                  const online = device.status === "online";
+
+                  return (
+                    <tr key={device.id} style={{
+                      borderBottom:index<devices.length-1
+                        ? `1px solid ${T.border}`
+                        : "none"
+                    }}>
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:13,
+                        fontWeight:700,
+                        color:T.slate
+                      }}>
+                        {device.hostname}
+                      </td>
+
+                      <td style={{ padding:"11px 14px" }}>
+                        <span style={{
+                          display:"inline-flex",
+                          alignItems:"center",
+                          gap:6,
+                          fontSize:11,
+                          fontWeight:700,
+                          color:online?T.success:T.danger,
+                          background:online?T.successBg:T.dangerBg,
+                          border:`1px solid ${online?T.successBorder:T.dangerBorder}`,
+                          borderRadius:20,
+                          padding:"3px 8px"
+                        }}>
+                          <span style={{
+                            width:7,
+                            height:7,
+                            borderRadius:"50%",
+                            background:online?T.success:T.danger
+                          }} />
+                          {online?"Online":"Offline"}
+                        </span>
+                      </td>
+
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:12,
+                        color:T.muted
+                      }}>
+                        {device.asset_tag || "—"}
+                      </td>
+
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:12,
+                        color:T.muted
+                      }}>
+                        {[device.os_name,device.os_version]
+                          .filter(Boolean)
+                          .join(" ") || "—"}
+                      </td>
+
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:12,
+                        color:T.muted
+                      }}>
+                        {device.logged_in_user || "—"}
+                      </td>
+
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:12,
+                        color:T.muted,
+                        fontFamily:T.mono
+                      }}>
+                        {device.ip_address || "—"}
+                      </td>
+
+                      <td style={{
+                        padding:"11px 14px",
+                        fontSize:12,
+                        color:T.muted
+                      }}>
+                        {device.last_seen ? fmtDate(device.last_seen) : "Never"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function App() {
   function DashboardTab({ data, loading, error }) {
@@ -1975,35 +2515,138 @@ function App() {
         marginBottom:22
       }}>
         {[
-          ["Total Assets", data.assets.total],
-          ["Assigned", data.assets.assigned],
-          ["Available", data.assets.available],
-          ["Low Consumables", data.alerts.lowConsumables.length],
-          ["Low Shirts", data.alerts.lowShirts.length],
-        ].map(([label,value])=>(
-          <div key={label} style={{
-            background:T.white,
-            border:`1.5px solid ${T.border}`,
-            borderRadius:10,
-            padding:"18px 20px"
-          }}>
+          {
+            label:"Total Assets",
+            value:data.assets.total,
+            icon:"▣",
+            color:T.slate,
+            tint:"#f8fafc",
+            border:T.border,
+            onClick:()=>setActiveTab("assets")
+          },
+          {
+            label:"Assigned",
+            value:data.assets.assigned,
+            icon:"👤",
+            color:"#1d4ed8",
+            tint:"#eff6ff",
+            border:"#93c5fd",
+            onClick:()=>setActiveTab("assets")
+          },
+          {
+            label:"Available",
+            value:data.assets.available,
+            icon:"✓",
+            color:"#15803d",
+            tint:"#f0fdf4",
+            border:"#86efac",
+            onClick:()=>{
+              setFStatus("In Storage");
+              setActiveTab("assets");
+            }
+          },
+          {
+            label:"Low Consumables",
+            value:data.alerts.lowConsumables.length,
+            icon:"⚠",
+            color:"#b45309",
+            tint:"#fffbeb",
+            border:"#fcd34d",
+            onClick:()=>setActiveTab("consumables")
+          },
+          {
+            label:"Low Shirts",
+            value:data.alerts.lowShirts.length,
+            icon:"⚠",
+            color:"#b45309",
+            tint:"#fffbeb",
+            border:"#fcd34d",
+            onClick:()=>setActiveTab("shirts")
+          },
+        ].map(card=>(
+          <div
+            key={card.label}
+            onClick={card.onClick}
+            style={{
+              background:T.white,
+              border:`1.5px solid ${card.border}`,
+              borderRadius:12,
+              padding:"18px 20px",
+              cursor:"pointer",
+              boxShadow:"0 2px 8px rgba(15,23,42,.05)",
+              transition:"transform .15s ease, box-shadow .15s ease",
+              position:"relative",
+              overflow:"hidden"
+            }}
+            onMouseEnter={e=>{
+              e.currentTarget.style.transform="translateY(-2px)";
+              e.currentTarget.style.boxShadow="0 7px 18px rgba(15,23,42,.10)";
+            }}
+            onMouseLeave={e=>{
+              e.currentTarget.style.transform="translateY(0)";
+              e.currentTarget.style.boxShadow="0 2px 8px rgba(15,23,42,.05)";
+            }}
+          >
             <div style={{
-              fontSize:11,
-              fontWeight:700,
-              color:T.muted,
-              textTransform:"uppercase",
-              letterSpacing:.7
+              position:"absolute",
+              right:-14,
+              top:-14,
+              width:72,
+              height:72,
+              borderRadius:"50%",
+              background:card.tint
+            }} />
+
+            <div style={{
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"space-between",
+              position:"relative"
             }}>
-              {label}
+              <div style={{
+                fontSize:11,
+                fontWeight:700,
+                color:T.muted,
+                textTransform:"uppercase",
+                letterSpacing:.7
+              }}>
+                {card.label}
+              </div>
+
+              <div style={{
+                width:30,
+                height:30,
+                borderRadius:8,
+                background:card.tint,
+                color:card.color,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                fontWeight:800,
+                fontSize:14
+              }}>
+                {card.icon}
+              </div>
             </div>
+
             <div style={{
-              fontSize:30,
+              fontSize:31,
               fontWeight:700,
-              marginTop:6,
+              marginTop:5,
               fontFamily:T.mono,
-              color:T.slate
+              color:card.color,
+              position:"relative"
             }}>
-              {value}
+              {card.value}
+            </div>
+
+            <div style={{
+              fontSize:10,
+              color:"#94a3b8",
+              marginTop:4,
+              position:"relative"
+            }}>
+              Click to view details →
             </div>
           </div>
         ))}
@@ -2014,98 +2657,288 @@ function App() {
         gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",
         gap:18
       }}>
+
+        {/* Low Consumables */}
         <div style={{
           background:T.white,
-          border:`1.5px solid ${T.border}`,
-          borderRadius:10,
-          padding:20
+          border:`1.5px solid ${T.warningBorder}`,
+          borderRadius:12,
+          overflow:"hidden",
+          boxShadow:"0 2px 8px rgba(15,23,42,.05)"
         }}>
-          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
-            Low Consumables
+          <div
+            onClick={()=>setActiveTab("consumables")}
+            style={{
+              padding:"15px 18px",
+              background:T.warningBg,
+              borderBottom:`1px solid ${T.warningDivider}`,
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"space-between",
+              cursor:"pointer"
+            }}
+          >
+            <div>
+              <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>
+                Low Consumables
+              </div>
+              <div style={{ fontSize:11,color:T.warningText,marginTop:2 }}>
+                Items at or below reorder threshold
+              </div>
+            </div>
+
+            <span style={{
+              minWidth:30,height:30,padding:"0 9px",borderRadius:15,
+              background:"#f59e0b",color:"#fff",display:"flex",
+              alignItems:"center",justifyContent:"center",
+              fontSize:12,fontWeight:800
+            }}>
+              {data.alerts.lowConsumables.length}
+            </span>
           </div>
 
-          {data.alerts.lowConsumables.length === 0 ? (
-            <div style={{ color:T.muted,fontSize:13 }}>
-              No low-stock consumables.
-            </div>
-          ) : (
-            data.alerts.lowConsumables.map(item=>(
-              <div key={item.id} style={{
-                display:"flex",
-                justifyContent:"space-between",
-                padding:"8px 0",
-                borderBottom:`1px solid ${T.border}`
-              }}>
-                <span>{item.name}</span>
-                <strong>{item.quantity} / {item.low_at}</strong>
+          <div style={{ padding:"8px 18px 14px" }}>
+            {data.alerts.lowConsumables.length === 0 ? (
+              <div style={{ color:"#15803d",fontSize:13,padding:"14px 0" }}>
+                ✓ All consumables are above threshold.
               </div>
-            ))
-          )}
+            ) : (
+              data.alerts.lowConsumables.map((item,index)=>{
+                const critical = item.quantity === 0;
+
+                return (
+                  <div key={item.id} style={{
+                    display:"flex",
+                    justifyContent:"space-between",
+                    alignItems:"center",
+                    gap:12,
+                    padding:"10px 0",
+                    borderBottom:index<data.alerts.lowConsumables.length-1
+                      ? `1px solid ${T.border}` : "none"
+                  }}>
+                    <div style={{
+                      fontSize:13,
+                      fontWeight:600,
+                      color:T.slate,
+                      minWidth:0,
+                      overflow:"hidden",
+                      textOverflow:"ellipsis",
+                      whiteSpace:"nowrap"
+                    }}>
+                      {item.name}
+                    </div>
+
+                    <span style={{
+                      flexShrink:0,
+                      fontFamily:T.mono,
+                      fontSize:11,
+                      fontWeight:700,
+                      color:critical?"#b91c1c":"#92400e",
+                      background:critical?"#fef2f2":"#fffbeb",
+                      border:`1px solid ${critical?"#fca5a5":"#fcd34d"}`,
+                      borderRadius:20,
+                      padding:"3px 8px"
+                    }}>
+                      {item.quantity} / {item.low_at}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
+        {/* Low Shirts */}
         <div style={{
           background:T.white,
-          border:`1.5px solid ${T.border}`,
-          borderRadius:10,
-          padding:20
+          border:`1.5px solid ${T.warningBorder}`,
+          borderRadius:12,
+          overflow:"hidden",
+          boxShadow:"0 2px 8px rgba(15,23,42,.05)"
         }}>
-          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
-            Low Shirts
-          </div>
-
-          {data.alerts.lowShirts.length === 0 ? (
-            <div style={{ color:T.muted,fontSize:13 }}>
-              No low-stock shirts.
-            </div>
-          ) : (
-            data.alerts.lowShirts.map(item=>(
-              <div key={item.id} style={{
-                display:"flex",
-                justifyContent:"space-between",
-                padding:"8px 0",
-                borderBottom:`1px solid ${T.border}`
-              }}>
-                <span>{item.color} — {item.size}</span>
-                <strong>{item.quantity}</strong>
+          <div
+            onClick={()=>setActiveTab("shirts")}
+            style={{
+              padding:"15px 18px",
+              background:T.warningBg,
+              borderBottom:`1px solid ${T.warningDivider}`,
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"space-between",
+              cursor:"pointer"
+            }}
+          >
+            <div>
+              <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>
+                Low Shirts
               </div>
-            ))
-          )}
-        </div>
+              <div style={{ fontSize:11,color:T.warningText,marginTop:2 }}>
+                Shirt inventory at low-stock level
+              </div>
+            </div>
 
-        <div style={{
-          background:T.white,
-          border:`1.5px solid ${T.border}`,
-          borderRadius:10,
-          padding:20
-        }}>
-          <div style={{ fontSize:15,fontWeight:700,marginBottom:12 }}>
-            Recent Activity
+            <span style={{
+              minWidth:30,height:30,padding:"0 9px",borderRadius:15,
+              background:"#f59e0b",color:"#fff",display:"flex",
+              alignItems:"center",justifyContent:"center",
+              fontSize:12,fontWeight:800
+            }}>
+              {data.alerts.lowShirts.length}
+            </span>
           </div>
 
-          {data.recentActivity.length === 0 ? (
-            <div style={{ color:T.muted,fontSize:13 }}>
-              No recent activity.
-            </div>
-          ) : (
-            data.recentActivity.map(item=>(
-              <div key={item.id} style={{
-                padding:"8px 0",
-                borderBottom:`1px solid ${T.border}`
-              }}>
-                <div style={{ fontWeight:600 }}>
-                  {item.action}
+          <div style={{ padding:"8px 18px 14px" }}>
+            {data.alerts.lowShirts.length === 0 ? (
+              <div style={{ color:"#15803d",fontSize:13,padding:"14px 0" }}>
+                ✓ Shirt inventory levels look good.
+              </div>
+            ) : (
+              data.alerts.lowShirts.map((item,index)=>(
+                <div key={item.id} style={{
+                  display:"flex",
+                  justifyContent:"space-between",
+                  alignItems:"center",
+                  gap:12,
+                  padding:"10px 0",
+                  borderBottom:index<data.alerts.lowShirts.length-1
+                    ? `1px solid ${T.border}` : "none"
+                }}>
+                  <div style={{ fontSize:13,fontWeight:600,color:T.slate }}>
+                    {item.color}
+                    <span style={{ color:T.muted,fontWeight:500 }}>
+                      {" "}— {item.size}
+                    </span>
+                  </div>
+
+                  <span style={{
+                    flexShrink:0,
+                    fontFamily:T.mono,
+                    fontSize:11,
+                    fontWeight:700,
+                    color:item.quantity===0?"#b91c1c":"#92400e",
+                    background:item.quantity===0?"#fef2f2":"#fffbeb",
+                    border:`1px solid ${item.quantity===0?"#fca5a5":"#fcd34d"}`,
+                    borderRadius:20,
+                    padding:"3px 9px"
+                  }}>
+                    Qty {item.quantity}
+                  </span>
                 </div>
-                <div style={{ fontSize:12,color:T.muted }}>
-                  {item.username || "Unknown"} — {item.details}
-                </div>
-              </div>
-            ))
-          )}
+              ))
+            )}
+          </div>
         </div>
+
+        {/* Recent Activity */}
+        <div style={{
+          background:T.white,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:12,
+          overflow:"hidden",
+          boxShadow:"0 2px 8px rgba(15,23,42,.05)"
+        }}>
+          <div style={{
+            padding:"15px 18px",
+            background:T.bg,
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"space-between"
+          }}>
+            <div>
+              <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>
+                Recent Activity
+              </div>
+              <div style={{ fontSize:11,color:T.muted,marginTop:2 }}>
+                Latest recorded operational changes
+              </div>
+            </div>
+
+            <span style={{
+              fontSize:11,
+              fontWeight:700,
+              color:T.muted,
+              background:T.white,
+              border:`1px solid ${T.border}`,
+              borderRadius:20,
+              padding:"4px 9px"
+            }}>
+              Latest {data.recentActivity.length}
+            </span>
+          </div>
+
+          <div style={{ padding:"8px 18px 14px" }}>
+            {data.recentActivity.length === 0 ? (
+              <div style={{ color:T.muted,fontSize:13,padding:"14px 0" }}>
+                No recent activity.
+              </div>
+            ) : (
+              data.recentActivity.map((item,index)=>(
+                <div key={item.id} style={{
+                  display:"flex",
+                  gap:10,
+                  padding:"10px 0",
+                  borderBottom:index<data.recentActivity.length-1
+                    ? `1px solid ${T.border}` : "none"
+                }}>
+                  <div style={{
+                    width:8,
+                    height:8,
+                    borderRadius:"50%",
+                    background:T.amber,
+                    marginTop:6,
+                    flexShrink:0
+                  }} />
+
+                  <div style={{ minWidth:0,flex:1 }}>
+                    <div style={{ fontSize:12,fontWeight:700,color:T.slate }}>
+                      {item.action}
+                    </div>
+
+                    <div style={{
+                      fontSize:12,
+                      color:T.muted,
+                      marginTop:2,
+                      lineHeight:1.4
+                    }}>
+                      {item.details}
+                    </div>
+
+                    <div style={{
+                      fontSize:10,
+                      color:"#94a3b8",
+                      marginTop:4
+                    }}>
+                      {item.username || "Unknown"}
+                      {item.created_at ? ` • ${fmtDate(item.created_at)}` : ""}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );
 }
+
+  const [theme,setTheme] = useState(
+    () => localStorage.getItem("mbs_theme") || "light"
+  );
+
+  Object.assign(
+    T,
+    theme === "dark" ? DARK_THEME : LIGHT_THEME
+  );
+
+  useEffect(() => {
+    localStorage.setItem("mbs_theme", theme);
+    document.documentElement.style.colorScheme = theme;
+    document.body.style.background = T.bg;
+  }, [theme]);
+
   const [assets,setAssets]         = useState([]);
   const [counter,setCounter]       = useState(1000);
   const [loading,setLoading]       = useState(true);
@@ -2475,7 +3308,7 @@ function App() {
             display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 2px 6px ${T.amber}55` }}>☀</div>
           <div>
             <div style={{ fontSize:15,fontWeight:700,color:T.slate }}>Miller Bros Solar</div>
-            <div style={{ fontSize:10,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>IT Asset Management</div>
+            <div style={{ fontSize:10,color:T.muted,letterSpacing:.8,textTransform:"uppercase" }}>MBS Operations Dashboard</div>
           </div>
         </div>
         <div style={{ display:"flex",gap:8,alignItems:"center" }}>
@@ -2483,6 +3316,14 @@ function App() {
           <Btn variant="secondary" sm onClick={handleExportCSV}>Export CSV</Btn>
           <label><input type="file" accept=".csv" style={{display:"none"}} onChange={handleImportCSV}/><Btn variant="secondary" sm onClick={()=>{}}>Import CSV</Btn></label>
           {activeTab==="assets"&&<Btn variant="primary" onClick={()=>setModal({type:"add"})}>+ New Asset</Btn>}
+          <Btn
+            variant="secondary"
+            sm
+            onClick={()=>setTheme(t=>t==="dark"?"light":"dark")}
+            title="Switch color theme"
+          >
+            {theme==="dark" ? "☀ Light" : "🌙 Dark"}
+          </Btn>
           <div style={{ display:"flex",alignItems:"center",gap:8,marginLeft:8,
             padding:"5px 12px",background:T.bg,borderRadius:7,border:`1.5px solid ${T.border}` }}>
             <span style={{ fontSize:12,fontWeight:600,color:T.slate }}>👤 {user.username}</span>
@@ -2493,26 +3334,111 @@ function App() {
         </div>
       </div>
 
-      {/* Tab Bar */}
-      <div style={{ background:T.white,borderBottom:`1.5px solid ${T.border}`,
-        padding:"0 28px",display:"flex",gap:0 }}>
+      {/* Module Navigation */}
+      <div style={{
+        background:T.white,
+        borderBottom:`1.5px solid ${T.border}`,
+        padding:"10px 26px",
+        display:"flex",
+        gap:10,
+        overflowX:"auto"
+      }}>
         {[
-  ["dashboard","▦  Dashboard"],
-  ["assets","📋  IT Assets"],
-  ["consumables","🔌  Consumables"],
-  ["shirts","👕  Shirts"],
-  ["tools","🔧  Field Tools"],
-  ["trucks","🚚  Trucks"]
-].map(([key,label])=>(
-  <button key={key} onClick={()=>setActiveTab(key)}
-    style={{ background:"none",border:"none",borderBottom:`3px solid ${activeTab===key?T.amber:"transparent"}`,
-      padding:"12px 20px",fontSize:13,fontWeight:activeTab===key?700:500,
-      color:activeTab===key?T.slate:T.muted,cursor:"pointer",
-      fontFamily:T.font,transition:"color .15s",marginBottom:-1 }}>
-    {label}
-  </button>
-))}
-        [
+          {
+            key:"dashboard",
+            label:"Dashboard",
+            glyph:"▦",
+            gradient:"linear-gradient(145deg,#fbbf24,#f97316,#ea580c)"
+          },
+          {
+            key:"assets",
+            label:"IT Assets",
+            glyph:"▣",
+            gradient:"linear-gradient(145deg,#38bdf8,#2563eb,#1d4ed8)"
+          },
+          {
+            key:"consumables",
+            label:"Consumables",
+            glyph:"◆",
+            gradient:"linear-gradient(145deg,#5eead4,#10b981,#047857)"
+          },
+          {
+            key:"shirts",
+            label:"Shirts",
+            glyph:"T",
+            gradient:"linear-gradient(145deg,#d8b4fe,#9333ea,#6d28d9)"
+          },
+          {
+            key:"tools",
+            label:"Field Tools",
+            glyph:"⚒",
+            gradient:"linear-gradient(145deg,#fb7185,#ef4444,#dc2626)"
+          },
+          {
+            key:"trucks",
+            label:"Trucks",
+            glyph:"▰",
+            gradient:"linear-gradient(145deg,#67e8f9,#06b6d4,#0284c7)"
+          }
+        ].map(item=>{
+          const active = activeTab === item.key;
+
+          return (
+            <button
+              key={item.key}
+              onClick={()=>setActiveTab(item.key)}
+              style={{
+                appearance:"none",
+                border:active
+                  ? `1.5px solid ${T.amber}`
+                  : `1.5px solid ${T.border}`,
+                background:active ? T.bg : T.white,
+                color:T.slate,
+                borderRadius:14,
+                padding:"7px 14px 7px 8px",
+                display:"flex",
+                alignItems:"center",
+                gap:9,
+                minWidth:"max-content",
+                cursor:"pointer",
+                fontFamily:T.font,
+                boxShadow:active
+                  ? "0 4px 14px rgba(245,158,11,.20)"
+                  : "0 2px 6px rgba(15,23,42,.07)",
+                transform:active ? "translateY(-1px)" : "none",
+                transition:"all .15s ease"
+              }}
+            >
+              <span style={{
+                width:32,
+                height:32,
+                borderRadius:10,
+                background:item.gradient,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                color:"#fff",
+                fontSize:item.key==="shirts" ? 15 : 17,
+                fontWeight:800,
+                lineHeight:1,
+                flexShrink:0,
+                border:"1px solid rgba(255,255,255,.28)",
+                boxShadow:"inset 0 1px 2px rgba(255,255,255,.45), 0 3px 7px rgba(0,0,0,.22)",
+                textShadow:"0 1px 2px rgba(0,0,0,.22)"
+              }}>
+                {item.glyph}
+              </span>
+
+              <span style={{
+                fontSize:12,
+                fontWeight:active ? 700 : 600,
+                whiteSpace:"nowrap"
+              }}>
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Stats — assets tab only */}
@@ -2550,6 +3476,7 @@ function App() {
   : activeTab==="shirts" ? <ShirtsTab />
   : activeTab==="tools" ? <ToolsTab />
   : activeTab==="trucks" ? <TrucksTab />
+  : activeTab==="rmm" ? <RMMTab />
   : (
     <div style={{ padding:"20px 28px" }}>
       {showLookup&&<div style={{ marginBottom:16 }}><QRLookup assets={assets} onSelect={a=>{ openDetail(a); setShowLookup(false); }} /></div>}
@@ -2557,19 +3484,19 @@ function App() {
         {/* Filters */}
         <div style={{ display:"flex",gap:10,marginBottom:16,flexWrap:"wrap" }}>
           <input placeholder="Search tag, name, serial, QR, user…" value={search} onChange={e=>setSearch(e.target.value)}
-            style={{ ...iBase,flex:1,minWidth:220,maxWidth:380 }} />
-          <select value={fType} onChange={e=>setFType(e.target.value)} style={{ ...iBase,width:"auto",minWidth:130 }}>
+            style={{ ...getIBase(),flex:1,minWidth:220,maxWidth:380 }} />
+          <select value={fType} onChange={e=>setFType(e.target.value)} style={{ ...getIBase(),width:"auto",minWidth:130 }}>
             <option value="All">All Types</option>{ASSET_TYPES.map(t=><option key={t}>{t}</option>)}
           </select>
-          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{ ...iBase,width:"auto",minWidth:160 }}>
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{ ...getIBase(),width:"auto",minWidth:160 }}>
             <option value="All">All Statuses</option>{STATUSES.map(s=><option key={s}>{s}</option>)}
           </select>
-          <select value={fQR} onChange={e=>setFQR(e.target.value)} style={{ ...iBase,width:"auto",minWidth:130 }}>
+          <select value={fQR} onChange={e=>setFQR(e.target.value)} style={{ ...getIBase(),width:"auto",minWidth:130 }}>
             <option value="All">All QR Status</option>
             <option value="Linked">QR Linked</option>
             <option value="Unlinked">No QR Tag</option>
           </select>
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ ...iBase,width:"auto",minWidth:120 }}>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ ...getIBase(),width:"auto",minWidth:120 }}>
             <option value="tag">Sort: Tag</option>
             <option value="name">Sort: Name</option>
             <option value="status">Sort: Status</option>
