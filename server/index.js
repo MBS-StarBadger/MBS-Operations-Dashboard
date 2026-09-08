@@ -134,16 +134,40 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS rmm_audit_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        device_id INTEGER REFERENCES rmm_devices(id) ON DELETE SET NULL,
+        action VARCHAR(100) NOT NULL,
+        result VARCHAR(30) NOT NULL DEFAULT 'success',
+        details TEXT,
+        source_ip VARCHAR(64),
+        mfa_verified BOOLEAN DEFAULT false,
+        correlation_id VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rmm_audit_created_at
+        ON rmm_audit_log(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_rmm_audit_device_id
+        ON rmm_audit_log(device_id);
+
+      CREATE INDEX IF NOT EXISTS idx_rmm_audit_user_id
+        ON rmm_audit_log(user_id);
   `);
-  const existing = await pool.query('SELECT * FROM users WHERE role = $1', ['admin']);
+  const existing = await pool.query(
+    'SELECT id FROM users WHERE role = $1 LIMIT 1',
+    ['admin']
+  );
+
   if (existing.rows.length === 0) {
-    const hash = await bcrypt.hash('MBSAdmin2026!', 10);
-    await pool.query(
-      'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
-      ['admin', hash, 'admin']
+    console.warn(
+      'WARNING: No administrator account exists. Create an administrator before using the application.'
     );
-    console.log('Default admin created: admin / MBSAdmin2026!');
   }
+
   console.log('Database ready');
 
   // Seed shirts if empty

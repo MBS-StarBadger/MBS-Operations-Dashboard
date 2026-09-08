@@ -1,12 +1,18 @@
+require('dotenv').config();
+
 const { Pool } = require('pg');
 const fs = require('fs');
 
+if (!process.env.DB_PASSWORD) {
+  throw new Error('DB_PASSWORD is required');
+}
+
 const pool = new Pool({
-  host: 'localhost',
-  port: 5432,
-  database: 'mbs_assets',
-  user: 'mbsadmin',
-  password: 'MBSAdmin2026',
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT || 5432),
+  database: process.env.DB_NAME || 'mbs_assets',
+  user: process.env.DB_USER || 'mbsadmin',
+  password: process.env.DB_PASSWORD,
 });
 
 async function importData() {

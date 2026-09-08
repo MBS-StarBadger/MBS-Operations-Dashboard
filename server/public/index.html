@@ -2095,6 +2095,8 @@ function TrucksTab() {
 function RMMTab() {
   const [summary,setSummary] = useState(null);
   const [devices,setDevices] = useState([]);
+  const [audit,setAudit] = useState([]);
+  const [view,setView] = useState("devices");
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
 
@@ -2106,14 +2108,16 @@ function RMMTab() {
       setError("");
 
       try {
-        const [summaryData,deviceData] = await Promise.all([
+        const [summaryData,deviceData,auditData] = await Promise.all([
           window.api.get('/api/rmm'),
           window.api.get('/api/rmm/devices'),
+          window.api.get('/api/rmm/audit?limit=100'),
         ]);
 
         if (!cancelled) {
           setSummary(summaryData);
           setDevices(deviceData);
+          setAudit(auditData);
         }
       } catch (err) {
         if (!cancelled) {
@@ -2167,6 +2171,8 @@ function RMMTab() {
       background:T.bg,
       minHeight:"calc(100vh - 120px)"
     }}>
+
+      {/* RMM Header */}
       <div style={{
         display:"flex",
         alignItems:"center",
@@ -2210,12 +2216,13 @@ function RMMTab() {
               color:T.muted,
               marginTop:3
             }}>
-              Administrative endpoint inventory, health and monitoring
+              Administrative endpoint inventory, health, monitoring and audit
             </div>
           </div>
         </div>
       </div>
 
+      {/* Summary Cards */}
       <div style={{
         display:"grid",
         gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
@@ -2223,7 +2230,7 @@ function RMMTab() {
         marginBottom:20
       }}>
         {[
-          ["Managed Devices",stats.total,"#4f46e5","#eef2ff"],
+          ["Managed Devices",stats.total,"#818cf8","rgba(99,102,241,.15)"],
           ["Online",stats.online,T.success,T.successBg],
           ["Offline",stats.offline,T.danger,T.dangerBg],
           ["Active Alerts",stats.alerts,T.warningText,T.warningBg],
@@ -2245,7 +2252,7 @@ function RMMTab() {
               height:76,
               borderRadius:"50%",
               background:tint,
-              opacity:.7
+              opacity:.8
             }} />
 
             <div style={{
@@ -2273,204 +2280,475 @@ function RMMTab() {
         ))}
       </div>
 
+      {/* RMM Internal Navigation */}
       <div style={{
-        background:T.surfaceRaised,
-        border:`1.5px solid ${T.border}`,
-        borderRadius:14,
-        overflow:"hidden",
-        boxShadow:`0 3px 10px ${T.shadow}`
+        display:"flex",
+        gap:8,
+        marginBottom:14
       }}>
-        <div style={{
-          padding:"15px 18px",
-          borderBottom:`1px solid ${T.border}`,
-          display:"flex",
-          alignItems:"center",
-          justifyContent:"space-between",
-          gap:12
-        }}>
-          <div>
-            <div style={{
-              fontSize:15,
-              fontWeight:700,
-              color:T.slate
-            }}>
-              Managed Endpoints
-            </div>
-            <div style={{
-              fontSize:11,
-              color:T.muted,
-              marginTop:2
-            }}>
-              Devices enrolled in MBS Operations Dashboard
-            </div>
-          </div>
+        {[
+          ["devices","Managed Endpoints","▣",devices.length],
+          ["audit","Audit Log","◷",audit.length],
+        ].map(([key,label,glyph,count])=>{
+          const active = view === key;
 
-          <span style={{
-            fontSize:11,
-            fontWeight:700,
-            color:T.muted,
-            background:T.surface,
-            border:`1px solid ${T.border}`,
-            borderRadius:20,
-            padding:"4px 9px"
-          }}>
-            {devices.length} devices
-          </span>
-        </div>
-
-        {devices.length === 0 ? (
-          <div style={{
-            padding:36,
-            textAlign:"center"
-          }}>
-            <div style={{
-              fontSize:28,
-              marginBottom:10
-            }}>
-              ◇
-            </div>
-            <div style={{
-              fontSize:15,
-              fontWeight:700,
-              color:T.slate
-            }}>
-              No managed endpoints yet
-            </div>
-            <div style={{
-              fontSize:12,
-              color:T.muted,
-              marginTop:5
-            }}>
-              The RMM backend is ready for the first enrolled test device.
-            </div>
-          </div>
-        ) : (
-          <div style={{ overflowX:"auto" }}>
-            <table style={{
-              width:"100%",
-              borderCollapse:"collapse"
-            }}>
-              <thead>
-                <tr style={{
-                  background:T.surfaceAlt,
-                  borderBottom:`1px solid ${T.border}`
-                }}>
-                  {[
-                    "Hostname",
-                    "Status",
-                    "Asset",
-                    "OS",
-                    "User",
-                    "IP Address",
-                    "Last Seen"
-                  ].map(h=>(
-                    <th key={h} style={{
-                      textAlign:"left",
-                      padding:"10px 14px",
-                      fontSize:10,
-                      fontWeight:700,
-                      color:T.muted,
-                      letterSpacing:.7,
-                      textTransform:"uppercase"
-                    }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {devices.map((device,index)=> {
-                  const online = device.status === "online";
-
-                  return (
-                    <tr key={device.id} style={{
-                      borderBottom:index<devices.length-1
-                        ? `1px solid ${T.border}`
-                        : "none"
-                    }}>
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:13,
-                        fontWeight:700,
-                        color:T.slate
-                      }}>
-                        {device.hostname}
-                      </td>
-
-                      <td style={{ padding:"11px 14px" }}>
-                        <span style={{
-                          display:"inline-flex",
-                          alignItems:"center",
-                          gap:6,
-                          fontSize:11,
-                          fontWeight:700,
-                          color:online?T.success:T.danger,
-                          background:online?T.successBg:T.dangerBg,
-                          border:`1px solid ${online?T.successBorder:T.dangerBorder}`,
-                          borderRadius:20,
-                          padding:"3px 8px"
-                        }}>
-                          <span style={{
-                            width:7,
-                            height:7,
-                            borderRadius:"50%",
-                            background:online?T.success:T.danger
-                          }} />
-                          {online?"Online":"Offline"}
-                        </span>
-                      </td>
-
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:12,
-                        color:T.muted
-                      }}>
-                        {device.asset_tag || "—"}
-                      </td>
-
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:12,
-                        color:T.muted
-                      }}>
-                        {[device.os_name,device.os_version]
-                          .filter(Boolean)
-                          .join(" ") || "—"}
-                      </td>
-
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:12,
-                        color:T.muted
-                      }}>
-                        {device.logged_in_user || "—"}
-                      </td>
-
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:12,
-                        color:T.muted,
-                        fontFamily:T.mono
-                      }}>
-                        {device.ip_address || "—"}
-                      </td>
-
-                      <td style={{
-                        padding:"11px 14px",
-                        fontSize:12,
-                        color:T.muted
-                      }}>
-                        {device.last_seen ? fmtDate(device.last_seen) : "Never"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+          return (
+            <button
+              key={key}
+              onClick={()=>setView(key)}
+              style={{
+                appearance:"none",
+                border:active
+                  ? "1.5px solid #6366f1"
+                  : `1.5px solid ${T.border}`,
+                background:active
+                  ? "rgba(99,102,241,.12)"
+                  : T.surfaceRaised,
+                color:active ? "#818cf8" : T.slate,
+                borderRadius:11,
+                padding:"8px 13px",
+                display:"flex",
+                alignItems:"center",
+                gap:8,
+                cursor:"pointer",
+                fontFamily:T.font,
+                fontSize:12,
+                fontWeight:700,
+                boxShadow:active
+                  ? "0 3px 10px rgba(79,70,229,.16)"
+                  : `0 2px 5px ${T.shadow}`
+              }}
+            >
+              <span>{glyph}</span>
+              <span>{label}</span>
+              <span style={{
+                minWidth:21,
+                height:21,
+                padding:"0 6px",
+                borderRadius:11,
+                display:"inline-flex",
+                alignItems:"center",
+                justifyContent:"center",
+                background:active?"#4f46e5":T.surfaceAlt,
+                color:active?"#fff":T.muted,
+                fontSize:10
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      {view==="devices" ? (
+        <div style={{
+          background:T.surfaceRaised,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:14,
+          overflow:"hidden",
+          boxShadow:`0 3px 10px ${T.shadow}`
+        }}>
+          <div style={{
+            padding:"15px 18px",
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"space-between",
+            gap:12
+          }}>
+            <div>
+              <div style={{
+                fontSize:15,
+                fontWeight:700,
+                color:T.slate
+              }}>
+                Managed Endpoints
+              </div>
+              <div style={{
+                fontSize:11,
+                color:T.muted,
+                marginTop:2
+              }}>
+                Devices enrolled in MBS Operations Dashboard
+              </div>
+            </div>
+
+            <span style={{
+              fontSize:11,
+              fontWeight:700,
+              color:T.muted,
+              background:T.surface,
+              border:`1px solid ${T.border}`,
+              borderRadius:20,
+              padding:"4px 9px"
+            }}>
+              {devices.length} devices
+            </span>
+          </div>
+
+          {devices.length === 0 ? (
+            <div style={{
+              padding:36,
+              textAlign:"center"
+            }}>
+              <div style={{ fontSize:28,marginBottom:10 }}>
+                ◇
+              </div>
+
+              <div style={{
+                fontSize:15,
+                fontWeight:700,
+                color:T.slate
+              }}>
+                No managed endpoints yet
+              </div>
+
+              <div style={{
+                fontSize:12,
+                color:T.muted,
+                marginTop:5
+              }}>
+                The RMM backend is ready for the first enrolled test device.
+              </div>
+            </div>
+          ) : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{
+                width:"100%",
+                borderCollapse:"collapse"
+              }}>
+                <thead>
+                  <tr style={{
+                    background:T.surfaceAlt,
+                    borderBottom:`1px solid ${T.border}`
+                  }}>
+                    {[
+                      "Hostname",
+                      "Status",
+                      "Asset",
+                      "OS",
+                      "User",
+                      "IP Address",
+                      "Last Seen"
+                    ].map(h=>(
+                      <th key={h} style={{
+                        textAlign:"left",
+                        padding:"10px 14px",
+                        fontSize:10,
+                        fontWeight:700,
+                        color:T.muted,
+                        letterSpacing:.7,
+                        textTransform:"uppercase"
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {devices.map((device,index)=>{
+                    const online = device.status === "online";
+
+                    return (
+                      <tr key={device.id} style={{
+                        borderBottom:index<devices.length-1
+                          ? `1px solid ${T.border}`
+                          : "none"
+                      }}>
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:13,
+                          fontWeight:700,
+                          color:T.slate
+                        }}>
+                          {device.hostname}
+                        </td>
+
+                        <td style={{ padding:"11px 14px" }}>
+                          <span style={{
+                            display:"inline-flex",
+                            alignItems:"center",
+                            gap:6,
+                            fontSize:11,
+                            fontWeight:700,
+                            color:online?T.success:T.danger,
+                            background:online?T.successBg:T.dangerBg,
+                            border:`1px solid ${online?T.successBorder:T.dangerBorder}`,
+                            borderRadius:20,
+                            padding:"3px 8px"
+                          }}>
+                            <span style={{
+                              width:7,
+                              height:7,
+                              borderRadius:"50%",
+                              background:online?T.success:T.danger
+                            }} />
+                            {online?"Online":"Offline"}
+                          </span>
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted
+                        }}>
+                          {device.asset_tag || "—"}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted
+                        }}>
+                          {[device.os_name,device.os_version]
+                            .filter(Boolean)
+                            .join(" ") || "—"}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted
+                        }}>
+                          {device.logged_in_user || "—"}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted,
+                          fontFamily:T.mono
+                        }}>
+                          {device.ip_address || "—"}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted
+                        }}>
+                          {device.last_seen
+                            ? fmtDate(device.last_seen)
+                            : "Never"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{
+          background:T.surfaceRaised,
+          border:`1.5px solid ${T.border}`,
+          borderRadius:14,
+          overflow:"hidden",
+          boxShadow:`0 3px 10px ${T.shadow}`
+        }}>
+          <div style={{
+            padding:"15px 18px",
+            borderBottom:`1px solid ${T.border}`,
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"space-between"
+          }}>
+            <div>
+              <div style={{
+                fontSize:15,
+                fontWeight:700,
+                color:T.slate
+              }}>
+                RMM Audit Log
+              </div>
+
+              <div style={{
+                fontSize:11,
+                color:T.muted,
+                marginTop:2
+              }}>
+                Administrative activity recorded within RMM
+              </div>
+            </div>
+
+            <span style={{
+              fontSize:11,
+              fontWeight:700,
+              color:T.muted,
+              background:T.surface,
+              border:`1px solid ${T.border}`,
+              borderRadius:20,
+              padding:"4px 9px"
+            }}>
+              Latest {audit.length}
+            </span>
+          </div>
+
+          {audit.length === 0 ? (
+            <div style={{
+              padding:36,
+              textAlign:"center"
+            }}>
+              <div style={{
+                fontSize:28,
+                marginBottom:10
+              }}>
+                ◷
+              </div>
+
+              <div style={{
+                fontSize:15,
+                fontWeight:700,
+                color:T.slate
+              }}>
+                No RMM activity recorded yet
+              </div>
+
+              <div style={{
+                fontSize:12,
+                color:T.muted,
+                marginTop:5
+              }}>
+                Future remote actions and privileged operations will appear here.
+              </div>
+            </div>
+          ) : (
+            <div style={{ overflowX:"auto" }}>
+              <table style={{
+                width:"100%",
+                borderCollapse:"collapse"
+              }}>
+                <thead>
+                  <tr style={{
+                    background:T.surfaceAlt,
+                    borderBottom:`1px solid ${T.border}`
+                  }}>
+                    {[
+                      "Time",
+                      "User",
+                      "Action",
+                      "Endpoint",
+                      "Result",
+                      "Source IP",
+                      "MFA"
+                    ].map(h=>(
+                      <th key={h} style={{
+                        textAlign:"left",
+                        padding:"10px 14px",
+                        fontSize:10,
+                        fontWeight:700,
+                        color:T.muted,
+                        letterSpacing:.7,
+                        textTransform:"uppercase"
+                      }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {audit.map((entry,index)=>{
+                    const ok = entry.result === "success";
+
+                    return (
+                      <tr key={entry.id} style={{
+                        borderBottom:index<audit.length-1
+                          ? `1px solid ${T.border}`
+                          : "none"
+                      }}>
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:11,
+                          color:T.muted,
+                          whiteSpace:"nowrap"
+                        }}>
+                          {fmtDate(entry.created_at)}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          fontWeight:700,
+                          color:T.slate
+                        }}>
+                          {entry.username || "Unknown"}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.slate
+                        }}>
+                          <div style={{ fontWeight:700 }}>
+                            {entry.action}
+                          </div>
+
+                          {entry.details&&(
+                            <div style={{
+                              fontSize:10,
+                              color:T.muted,
+                              marginTop:2
+                            }}>
+                              {entry.details}
+                            </div>
+                          )}
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:12,
+                          color:T.muted
+                        }}>
+                          {entry.hostname || "—"}
+                        </td>
+
+                        <td style={{ padding:"11px 14px" }}>
+                          <span style={{
+                            fontSize:10,
+                            fontWeight:800,
+                            color:ok?T.success:T.danger,
+                            background:ok?T.successBg:T.dangerBg,
+                            border:`1px solid ${ok?T.successBorder:T.dangerBorder}`,
+                            borderRadius:20,
+                            padding:"3px 8px",
+                            textTransform:"uppercase"
+                          }}>
+                            {entry.result}
+                          </span>
+                        </td>
+
+                        <td style={{
+                          padding:"11px 14px",
+                          fontSize:11,
+                          color:T.muted,
+                          fontFamily:T.mono
+                        }}>
+                          {entry.source_ip || "—"}
+                        </td>
+
+                        <td style={{ padding:"11px 14px" }}>
+                          <span style={{
+                            fontSize:10,
+                            fontWeight:700,
+                            color:entry.mfa_verified
+                              ? T.success
+                              : T.muted
+                          }}>
+                            {entry.mfa_verified ? "✓ Verified" : "—"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
