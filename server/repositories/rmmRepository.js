@@ -4,6 +4,11 @@ async function findAll() {
   const result = await pool.query(`
     SELECT
       d.*,
+      CASE
+        WHEN d.last_seen >= NOW() - INTERVAL '2 minutes'
+          THEN 'online'
+        ELSE 'offline'
+      END AS status,
       a.asset_tag,
       a.name AS asset_name,
       a.assigned_to
@@ -20,11 +25,11 @@ async function getSummary() {
     SELECT
       COUNT(*)::int AS total,
       COUNT(*) FILTER (
-        WHERE status = 'online'
+        WHERE last_seen >= NOW() - INTERVAL '2 minutes'
       )::int AS online,
       COUNT(*) FILTER (
-        WHERE status <> 'online'
-           OR status IS NULL
+        WHERE last_seen < NOW() - INTERVAL '2 minutes'
+           OR last_seen IS NULL
       )::int AS offline
     FROM rmm_devices
   `);
