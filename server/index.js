@@ -128,12 +128,16 @@ async function initDB() {
         ip_address VARCHAR(64),
         logged_in_user VARCHAR(100),
         agent_version VARCHAR(50),
+        agent_token_hash VARCHAR(64),
         status VARCHAR(20) DEFAULT 'offline',
         first_seen TIMESTAMP DEFAULT NOW(),
         last_seen TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      ALTER TABLE rmm_devices
+        ADD COLUMN IF NOT EXISTS agent_token_hash VARCHAR(64);
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,
