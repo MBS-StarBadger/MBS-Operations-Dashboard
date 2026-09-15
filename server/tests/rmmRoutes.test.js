@@ -3,6 +3,9 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 
 jest.mock('jsonwebtoken');
+jest.mock('../repositories/rmmCorrelationRepository', () => ({
+  correlateDevice: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock('../db/pool', () => ({
   query: jest.fn(),
 }));
@@ -460,6 +463,8 @@ describe('RMM routes', () => {
         os_version: '11 Pro',
         architecture: 'x64',
         serial_number: 'ABC123',
+        manufacturer: 'Dell',
+        model: 'Latitude',
         ip_address: '10.0.0.50',
         logged_in_user: 'rcooper',
         agent_version: '0.1.0',
@@ -487,6 +492,11 @@ describe('RMM routes', () => {
     expect(updateParams[6]).toBe('10.0.0.50');
     expect(updateParams[7]).toBe('rcooper');
     expect(updateParams[8]).toBe('0.1.0');
+    expect(updateParams[9]).toBe('Dell');
+    expect(updateParams[10]).toBe('Latitude');
+    expect(updateSql).toContain('manufacturer = $10');
+    expect(updateSql).toContain('model = $11');
+    expect(require('../repositories/rmmCorrelationRepository').correlateDevice).toHaveBeenCalledWith(10, { autoLink: true });
   });
 
   test('POST /api/rmm/agent/checkin rejects wrong agent token', async () => {
@@ -583,6 +593,308 @@ describe('RMM routes', () => {
     });
 
     expect(pool.query).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ['a queued job', {
+      id: 42,
+      device_id: 10,
+      job_type: 'inventory',
+      payload: {},
+      status: 'claimed',
+      created_at: '2026-09-15T13:00:00.000Z',
+      claimed_at: '2026-09-15T13:01:00.000Z',
+    }],
+    ['no queued job', null],
+  ])('GET /api/rmm/agent/jobs/next returns %s for an authenticated agent', async (_, job) => {
+    const crypto = require('crypto');
+    const token = 'd'.repeat(64);
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    pool.query
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 10,
+          agent_id: 'agent-123',
+          hostname: 'MBS-TEST-001',
+          agent_token_hash: tokenHash,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: job ? [job] : [] });
+
+    const response = await request(app)
+      .get('/api/rmm/agent/jobs/next')
+      .set('x-rmm-agent-id', 'agent-123')
+      .set('x-rmm-agent-token', token);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'ok', job });
+    expect(jwt.verify).not.toHaveBeenCalled();
+    expect(pool.query).toHaveBeenCalledTimes(2);
+    expect(pool.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('WHERE agent_id = $1'),
+      ['agent-123']
+    );
+    expect(pool.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('UPDATE rmm_jobs'),
+      [10]
+    );
+  });
+
+  test('GET /api/rmm/agent/jobs/next rejects missing agent credentials', async () => {
+    const response = await request(app)
+      .get('/api/rmm/agent/jobs/next');
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: 'Agent credentials required' });
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  test('GET /api/rmm/agent/jobs/next returns 500 when claiming a job fails', async () => {
+    const crypto = require('crypto');
+    const token = 'e'.repeat(64);
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const error = new Error('Job query failed');
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    pool.query
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 10,
+          agent_id: 'agent-123',
+          hostname: 'MBS-TEST-001',
+          agent_token_hash: tokenHash,
+        }],
+      })
+      .mockRejectedValueOnce(error);
+
+    try {
+      const response = await request(app)
+        .get('/api/rmm/agent/jobs/next')
+        .set('x-rmm-agent-id', 'agent-123')
+        .set('x-rmm-agent-token', token);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: 'Unable to retrieve RMM job' });
+      expect(log).toHaveBeenCalledWith('RMM agent job poll failed:', error);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  describe('POST /api/rmm/agent/jobs/:jobId/result', () => {
+    const token = 'f'.repeat(64);
+    const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
+
+    function authenticate() {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ id: 10, agent_id: 'agent-123', agent_token_hash: tokenHash }],
+      });
+    }
+
+    function report(body, jobId = '42') {
+      return request(app)
+        .post(`/api/rmm/agent/jobs/${jobId}/result`)
+        .set('x-rmm-agent-id', 'agent-123')
+        .set('x-rmm-agent-token', token)
+        .send(body);
+    }
+
+    test.each(['started', 'completed', 'failed'])('accepts a valid %s transition', async (status) => {
+      authenticate();
+      const body = {
+        status,
+        result_code: status === 'failed' ? 1 : 0,
+        result_output: 'Inventory refresh result',
+        result_error: status === 'failed' ? 'Inventory collection failed' : null,
+      };
+      const job = { id: 42, device_id: 10, ...body };
+      pool.query.mockResolvedValueOnce({ rows: [job] });
+
+      const response = await report({ ...body, device_id: 999 });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ status: 'ok', job });
+      expect(jwt.verify).not.toHaveBeenCalled();
+      expect(pool.query).toHaveBeenCalledTimes(2);
+      const [sql, params] = pool.query.mock.calls[1];
+      expect(params).toEqual([42, 10, status, body.result_code, body.result_output, body.result_error]);
+      expect(sql).toContain('WHERE id = $1 AND device_id = $2');
+      expect(sql).toContain("($3 = 'started' AND status = 'claimed')");
+      expect(sql).toContain("($3 = 'completed' AND status = 'started')");
+      expect(sql).toContain("($3 = 'failed' AND status IN ('claimed', 'started'))");
+      expect(sql).toContain("started_at = CASE WHEN $3 = 'started' THEN NOW() ELSE started_at END");
+      expect(sql).toContain("completed_at = CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE completed_at END");
+    });
+
+    test.each(['another device job', 'nonexistent job'])('returns 404 for %s', async () => {
+      authenticate();
+      // Neither a foreign job nor a missing job matches either device-scoped query.
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+      const response = await report({ status: 'started', device_id: 999 });
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: 'RMM job not found' });
+      expect(pool.query.mock.calls[1][0]).toContain('WHERE id = $1 AND device_id = $2');
+      expect(pool.query.mock.calls[1][1]).toEqual([42, 10, 'started', null, null, null]);
+      expect(pool.query).toHaveBeenNthCalledWith(3,
+        'SELECT id FROM rmm_jobs WHERE id = $1 AND device_id = $2', [42, 10]);
+    });
+
+    test('rejects an invalid state transition', async () => {
+      authenticate();
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 42 }] });
+      const response = await report({ status: 'completed' });
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: 'Invalid RMM job status transition' });
+    });
+
+    test.each([
+      [{ status: 'queued' }, '42'],
+      [{ status: 'started' }, 'abc'],
+      [{ status: 'started' }, '0'],
+      [{ status: 'started', result_code: '0' }, '42'],
+      [{ status: 'started', result_code: 2147483648 }, '42'],
+      [{ status: 'completed', result_output: {} }, '42'],
+      [{ status: 'failed', result_error: [] }, '42'],
+    ])('rejects invalid input %j for job %s', async (body, jobId) => {
+      authenticate();
+      const response = await report(body, jobId);
+      expect(response.status).toBe(400);
+      expect(response.body.error).toEqual(expect.any(String));
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
+    test('rejects missing agent credentials', async () => {
+      const response = await request(app).post('/api/rmm/agent/jobs/42/result').send({ status: 'started' });
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: 'Agent credentials required' });
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test('returns 500 on a repository failure', async () => {
+      authenticate();
+      const error = new Error('Database unavailable');
+      pool.query.mockRejectedValueOnce(error);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const response = await report({ status: 'started' });
+        expect(response.status).toBe(500);
+        expect(response.body).toEqual({ error: 'Unable to report RMM job result' });
+        expect(log).toHaveBeenCalledWith('RMM agent job result failed:', error);
+      } finally {
+        log.mockRestore();
+      }
+    });
+  });
+
+  describe('admin device jobs', () => {
+    const path = '/api/rmm/devices/10/jobs';
+    const job = { id: 52, device_id: 10, job_type: 'inventory_refresh', status: 'queued', created_by: 1 };
+    beforeEach(() => {
+      jwt.verify.mockReturnValue({ id: 1, username: 'admin-user', role: 'admin' });
+    });
+
+    test('admin creates a queued inventory job using URL device and authenticated user, and writes audit', async () => {
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10 }] })
+        .mockResolvedValueOnce({ rows: [job] })
+        .mockResolvedValueOnce({ rows: [{ id: 1 }] });
+      const response = await request(app).post(path).set('Authorization', 'Bearer valid-token')
+        .send({ job_type: 'inventory_refresh', device_id: 999, created_by: 999, payload: { command: 'ignored' } });
+      expect(response.status).toBe(201);
+      expect(response.body).toEqual({ status: 'ok', job });
+      expect(pool.query.mock.calls[0][1]).toEqual([10]);
+      expect(pool.query).toHaveBeenNthCalledWith(2, expect.stringContaining("VALUES ($1, $2, 'queued', $3)"), [10, 'inventory_refresh', 1]);
+      expect(pool.query).toHaveBeenNthCalledWith(3, expect.stringContaining('INSERT INTO rmm_audit_log'), [
+        1, 10, 'RMM_JOB_CREATED', 'success', 'Queued inventory_refresh job 52', expect.any(String), false, null,
+      ]);
+      expect(pool.query).toHaveBeenCalledTimes(3);
+    });
+
+    test('cannot queue management jobs for an out-of-scope linked asset', async () => {
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10, asset_id: 99, asset_type: null }] });
+      const response = await request(app).post(path).set('Authorization', 'Bearer valid-token')
+        .send({ job_type: 'inventory_refresh' });
+      expect(response.status).toBe(400);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
+    test('admin retrieves newest device-scoped job history including lifecycle fields', async () => {
+      const jobs = [{ ...job, claimed_at: null, started_at: null, completed_at: null,
+        created_at: '2026-09-15T13:00:00.000Z', result_code: null, result_output: null, result_error: null, username: 'admin-user' }];
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10 }] }).mockResolvedValueOnce({ rows: jobs });
+      const response = await request(app).get(path).set('Authorization', 'Bearer valid-token');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ status: 'ok', jobs });
+      expect(pool.query.mock.calls[0][1]).toEqual([10]);
+      const [sql,params] = pool.query.mock.calls[1];
+      expect(params).toEqual([10]);
+      expect(sql).toContain('WHERE j.device_id = $1');
+      expect(sql).toContain('ORDER BY j.created_at DESC, j.id DESC');
+      expect(sql).toContain('LIMIT 25');
+      for (const field of ['claimed_at', 'started_at', 'completed_at', 'result_code', 'result_output', 'result_error', 'created_by']) {
+        expect(sql).toContain(`j.${field}`);
+      }
+      expect(sql).toContain('u.username');
+    });
+
+    test.each(['post', 'get'])('%s rejects non-admin access', async (method) => {
+      jwt.verify.mockReturnValue({ id: 2, role: 'user' });
+      const response = await request(app)[method](path).set('Authorization', 'Bearer valid-token').send({ job_type: 'inventory_refresh' });
+      expect(response.status).toBe(403);
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test.each(['post', 'get'])('%s rejects unauthenticated access', async (method) => {
+      const response = await request(app)[method](path).send({ job_type: 'inventory_refresh' });
+      expect(response.status).toBe(401);
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test.each(['reboot', 'powershell', '', null, ['inventory_refresh']])('rejects unsupported job type %j', async (jobType) => {
+      const response = await request(app).post(path).set('Authorization', 'Bearer valid-token').send({ job_type: jobType });
+      expect(response.status).toBe(400);
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test.each(['post', 'get'])('%s returns 404 for missing device', async (method) => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+      const response = await request(app)[method](path).set('Authorization', 'Bearer valid-token').send({ job_type: 'inventory_refresh' });
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: 'RMM device not found' });
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(['post', 'get'])('%s rejects malformed device IDs', async (method) => {
+      for (const id of ['0', '-1', '10abc', '1.5', '2147483648']) {
+        const response = await request(app)[method](`/api/rmm/devices/${id}/jobs`).set('Authorization', 'Bearer valid-token').send({ job_type: 'inventory_refresh' });
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({ error: 'Invalid device ID' });
+      }
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test.each(['post', 'get'])('%s returns 500 on repository failure', async (method) => {
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10 }] }).mockRejectedValueOnce(new Error('Database unavailable'));
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const response = await request(app)[method](path).set('Authorization', 'Bearer valid-token').send({ job_type: 'inventory_refresh' });
+        expect(response.status).toBe(500);
+        expect(response.body.error).toBe(method === 'post' ? 'Unable to create RMM job' : 'Unable to load RMM job history');
+      } finally { log.mockRestore(); }
+    });
+
+    test('audit failure preserves successful creation following the existing audit pattern', async () => {
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10 }] }).mockResolvedValueOnce({ rows: [job] })
+        .mockRejectedValueOnce(new Error('Audit unavailable'));
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const response = await request(app).post(path).set('Authorization', 'Bearer valid-token').send({ job_type: 'inventory_refresh' });
+        expect(response.status).toBe(201);
+        expect(log).toHaveBeenCalledWith('RMM job creation audit failed:', expect.any(Error));
+      } finally { log.mockRestore(); }
+    });
   });
 
 });

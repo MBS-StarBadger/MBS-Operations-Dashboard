@@ -10,10 +10,11 @@ async function findAll() {
         ELSE 'offline'
       END AS status,
       a.asset_tag,
+      a.type AS asset_type,
       a.name AS asset_name,
       a.assigned_to
     FROM rmm_devices d
-    LEFT JOIN assets a ON d.asset_id = a.id
+    LEFT JOIN assets a ON d.asset_id = a.id AND a.type IN ('Desktop', 'Laptop', 'Server')
     ORDER BY d.hostname ASC
   `);
 
@@ -54,6 +55,8 @@ async function findById(id) {
       d.os_version,
       d.architecture,
       d.serial_number,
+      d.manufacturer,
+      d.model,
       d.ip_address,
       d.logged_in_user,
       d.agent_version,
@@ -78,11 +81,12 @@ async function findById(id) {
       END AS seconds_since_seen,
 
       a.asset_tag,
+      a.type AS asset_type,
       a.name AS asset_name,
       a.assigned_to
 
     FROM rmm_devices d
-    LEFT JOIN assets a ON d.asset_id = a.id
+    LEFT JOIN assets a ON d.asset_id = a.id AND a.type IN ('Desktop', 'Laptop', 'Server')
     WHERE d.id = $1
     LIMIT 1
     `,
@@ -139,6 +143,8 @@ async function checkIn({
   ipAddress,
   loggedInUser,
   agentVersion,
+  manufacturer,
+  model,
 }) {
   const result = await pool.query(
     `
@@ -152,6 +158,8 @@ async function checkIn({
       ip_address = $7,
       logged_in_user = $8,
       agent_version = $9,
+      manufacturer = $10,
+      model = $11,
       status = 'online',
       last_seen = NOW(),
       updated_at = NOW()
@@ -173,6 +181,8 @@ async function checkIn({
       ipAddress,
       loggedInUser,
       agentVersion,
+      manufacturer,
+      model,
     ]
   );
 

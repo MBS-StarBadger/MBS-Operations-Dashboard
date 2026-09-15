@@ -1,6 +1,8 @@
 const crypto = require('crypto');
+const rmmCorrelationRepository = require('../repositories/rmmCorrelationRepository');
 const rmmRepository = require('../repositories/rmmRepository');
 const rmmAuditRepository = require('../repositories/rmmAuditRepository');
+const rmmJobRepository = require('../repositories/rmmJobRepository');
 
 async function getRmmStatus(req, res) {
   const devices = await rmmRepository.getSummary();
@@ -48,7 +50,8 @@ async function getDevice(req, res) {
       });
     }
 
-    return res.json(device);
+    const correlation = await rmmCorrelationRepository.correlateDevice(id);
+    return res.json({ ...device, correlation });
   } catch (error) {
     console.error('RMM device lookup failed:', error);
 
@@ -135,7 +138,11 @@ async function agentCheckIn(req, res) {
         null,
       loggedInUser: req.body?.logged_in_user || null,
       agentVersion: req.body?.agent_version || null,
+      manufacturer: req.body?.manufacturer || null,
+      model: req.body?.model || null,
     });
+
+    await rmmCorrelationRepository.correlateDevice(device.id, { autoLink: true });
 
     return res.json({
       status: 'ok',
@@ -150,10 +157,118 @@ async function agentCheckIn(req, res) {
   }
 }
 
+async function getNextAgentJob(req, res) {
+  try {
+    const device = req.rmmDevice;
+    const job = await rmmJobRepository.claimNextForDevice(device.id);
+
+    return res.status(200).json({ status: 'ok', job });
+  } catch (error) {
+    console.error('RMM agent job poll failed:', error);
+
+    return res.status(500).json({
+      error: 'Unable to retrieve RMM job',
+    });
+  }
+}
+
+async function reportAgentJobResult(req, res) {
+  const jobId = Number(req.params.jobId);
+  const body = req.body || {};
+  if (!/^[1-9]\d*$/.test(req.params.jobId) || !Number.isSafeInteger(jobId)) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+  if (!['started', 'completed', 'failed'].includes(body.status)) {
+    return res.status(400).json({ error: 'Status must be started, completed, or failed' });
+  }
+  if (body.result_code != null && (!Number.isInteger(body.result_code) ||
+      body.result_code < -2147483648 || body.result_code > 2147483647)) {
+    return res.status(400).json({ error: 'result_code must be a 32-bit integer' });
+  }
+  for (const field of ['result_output', 'result_error']) {
+    if (body[field] != null && typeof body[field] !== 'string') {
+      return res.status(400).json({ error: `${field} must be a string` });
+    }
+  }
+
+  try {
+    const result = await rmmJobRepository.reportResultForDevice(jobId, req.rmmDevice.id, body);
+    if (result.error === 'not_found') {
+      return res.status(404).json({ error: 'RMM job not found' });
+    }
+    if (result.error === 'invalid_transition') {
+      return res.status(400).json({ error: 'Invalid RMM job status transition' });
+    }
+    return res.status(200).json({ status: 'ok', job: result.job });
+  } catch (error) {
+    console.error('RMM agent job result failed:', error);
+    return res.status(500).json({ error: 'Unable to report RMM job result' });
+  }
+}
+
+const dashboardJobTypes = new Set(['inventory_refresh']);
+
+function parseJobDeviceId(value) {
+  const id = Number(value);
+  return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(id) && id <= 2147483647 ? id : null;
+}
+
+async function createDeviceJob(req, res) {
+  const deviceId = parseJobDeviceId(req.params.deviceId);
+  if (!deviceId) return res.status(400).json({ error: 'Invalid device ID' });
+  const jobType = req.body?.job_type;
+  if (!dashboardJobTypes.has(jobType)) {
+    return res.status(400).json({ error: 'Unsupported job type; only inventory_refresh is allowed' });
+  }
+  try {
+    const device = await rmmRepository.findById(deviceId);
+    if (!device) return res.status(404).json({ error: 'RMM device not found' });
+    if (device.asset_id != null && !['Desktop', 'Laptop', 'Server'].includes(device.asset_type)) {
+      return res.status(400).json({ error: 'Linked asset is outside RMM scope' });
+    }
+    const job = await rmmJobRepository.createForDevice(deviceId, jobType, req.user.id);
+    try {
+      await rmmAuditRepository.insert({
+        userId: req.user.id,
+        deviceId,
+        action: 'RMM_JOB_CREATED',
+        result: 'success',
+        details: `Queued ${jobType} job ${job.id}`,
+        sourceIp: req.ip || req.socket?.remoteAddress || null,
+        mfaVerified: false,
+      });
+    } catch (auditError) {
+      console.error('RMM job creation audit failed:', auditError);
+    }
+    return res.status(201).json({ status: 'ok', job });
+  } catch (error) {
+    console.error('RMM job creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create RMM job' });
+  }
+}
+
+async function listDeviceJobs(req, res) {
+  const deviceId = parseJobDeviceId(req.params.deviceId);
+  if (!deviceId) return res.status(400).json({ error: 'Invalid device ID' });
+  try {
+    const device = await rmmRepository.findById(deviceId);
+    if (!device) return res.status(404).json({ error: 'RMM device not found' });
+    const jobs = await rmmJobRepository.findRecentForDevice(deviceId);
+    return res.json({ status: 'ok', jobs });
+  } catch (error) {
+    console.error('RMM job history failed:', error);
+    return res.status(500).json({ error: 'Unable to load RMM job history' });
+  }
+}
+
 module.exports = {
+  createDeviceJob,
+  listDeviceJobs,
   getRmmStatus,
   listDevices,
   getDevice,
   enrollDevice,
   agentCheckIn,
+  getNextAgentJob,
+  reportAgentJobResult,
 };

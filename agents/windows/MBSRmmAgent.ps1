@@ -59,6 +59,8 @@ function Get-MBSInventory {
         os_version     = $os.Version
         architecture   = $os.OSArchitecture
         serial_number  = $bios.SerialNumber
+        manufacturer   = $computer.Manufacturer
+        model          = $computer.Model
         ip_address     = Get-MBSPrimaryIPv4
         logged_in_user = $computer.UserName
         agent_version  = $AgentVersion
@@ -88,6 +90,69 @@ function Send-MBSCheckIn {
         -Body $body
 }
 
+function Send-MBSJobResult {
+    param(
+        [object]$Config,
+        [long]$JobId,
+        [ValidateSet("started", "completed", "failed")][string]$Status,
+        [int]$ResultCode = 0,
+        [string]$ResultOutput = "",
+        [string]$ResultError = ""
+    )
+
+    $headers = @{
+        "x-rmm-agent-id" = $Config.agent_id
+        "x-rmm-agent-token" = $Config.token
+    }
+    $body = @{
+        status = $Status
+        result_code = $ResultCode
+        result_output = $ResultOutput
+        result_error = $ResultError
+    } | ConvertTo-Json
+    Invoke-RestMethod -Uri "$($Config.server_url.TrimEnd('/'))/api/rmm/agent/jobs/$JobId/result" `
+        -Method Post -Headers $headers -ContentType "application/json" -Body $body | Out-Null
+}
+
+function Invoke-MBSNextJob {
+    param([object]$Config)
+
+    $headers = @{
+        "x-rmm-agent-id" = $Config.agent_id
+        "x-rmm-agent-token" = $Config.token
+    }
+    $poll = Invoke-RestMethod -Uri "$($Config.server_url.TrimEnd('/'))/api/rmm/agent/jobs/next" `
+        -Method Get -Headers $headers
+    if ($null -eq $poll.job) { return }
+
+    $job = $poll.job
+    $allowedJobTypes = @("inventory_refresh")
+    if ($allowedJobTypes -cnotcontains $job.job_type) {
+        Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
+            -ResultError "Unsupported job type; no action was executed"
+        return
+    }
+
+    # Do not execute until the server acknowledges the started transition.
+    Send-MBSJobResult -Config $Config -JobId $job.id -Status started
+    $failureMessage = "Inventory collection failed"
+    try {
+        $inventory = Get-MBSInventory
+        $failureMessage = "Inventory refresh check-in failed"
+        Send-MBSCheckIn -Config $Config -Inventory $inventory | Out-Null
+    }
+    catch {
+        # Fixed stage-specific messages exclude credentials and raw server responses.
+        Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
+            -ResultError $failureMessage
+        return
+    }
+
+    # A reporting failure must not turn successful execution into a failed job.
+    Send-MBSJobResult -Config $Config -JobId $job.id -Status completed `
+        -ResultOutput "Inventory refresh completed successfully"
+}
+
 try {
     $config = Get-MBSAgentConfig -Path $ConfigPath
     $inventory = Get-MBSInventory
@@ -99,5 +164,13 @@ try {
 }
 catch {
     Write-Error "MBS RMM check-in failed: $($_.Exception.Message)"
+    exit 1
+}
+
+try {
+    Invoke-MBSNextJob -Config $config
+}
+catch {
+    Write-Error "MBS RMM job polling or result reporting failed."
     exit 1
 }

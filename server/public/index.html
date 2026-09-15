@@ -2092,7 +2092,153 @@ function TrucksTab() {
 
 
 
-function RMMTab() {
+function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
+  const [jobs,setJobs] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+  const [feedback,setFeedback] = useState(null);
+  const [submitting,setSubmitting] = useState(false);
+  const [revision,setRevision] = useState(0);
+  const mounted = useRef(false);
+  const pending = useRef(false);
+
+  useEffect(()=>{
+    mounted.current = true;
+    return ()=>{ mounted.current = false; };
+  },[]);
+
+  useEffect(()=>{
+    let cancelled = false;
+    let timer;
+    async function refresh() {
+      try {
+        const [device,data] = await Promise.all([
+          window.api.get(`/api/rmm/devices/${deviceId}`),
+          window.api.get(`/api/rmm/devices/${deviceId}/jobs`),
+        ]);
+        if (!cancelled) {
+          onDeviceRefresh(device);
+          setJobs(data.jobs);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Unable to refresh device and job history");
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          timer = setTimeout(refresh,5000);
+        }
+      }
+    }
+    refresh();
+    return ()=>{ cancelled = true; clearTimeout(timer); };
+  },[deviceId,onDeviceRefresh,revision]);
+
+  async function refreshInventory() {
+    if (pending.current) return;
+    pending.current = true;
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      const data = await window.api.post(`/api/rmm/devices/${deviceId}/jobs`, {
+        job_type:"inventory_refresh",
+      });
+      if (mounted.current) {
+        setFeedback({ success:true,text:`Inventory refresh queued (job #${data.job.id}). Waiting for the agent.` });
+        setRevision(value=>value+1);
+      }
+    } catch (err) {
+      if (mounted.current) setFeedback({ success:false,text:err.message || "Unable to queue inventory refresh" });
+    } finally {
+      pending.current = false;
+      if (mounted.current) setSubmitting(false);
+    }
+  }
+
+  const statusStyles = {
+    queued:{ color:T.muted,background:T.surfaceAlt,borderColor:T.border },
+    claimed:{ color:T.warningText,background:T.warningBg,borderColor:T.warningBorder },
+    started:{ color:"#818cf8",background:"rgba(99,102,241,.12)",borderColor:"#6366f1" },
+    completed:{ color:T.success,background:T.successBg,borderColor:T.successBorder },
+    failed:{ color:T.danger,background:T.dangerBg,borderColor:T.dangerBorder },
+  };
+  return (
+    <div style={{ gridColumn:"1 / -1",minWidth:0 }}>
+      <section style={{ background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:16,marginBottom:16 }}>
+        <h3 style={{ margin:"0 0 14px",fontSize:13,color:T.slate }}>Actions</h3>
+        <button type="button" disabled={submitting} onClick={refreshInventory}
+          style={{ background:"rgba(99,102,241,.12)",color:"#818cf8",border:"1px solid #6366f1",borderRadius:8,padding:"8px 13px",fontFamily:T.font,fontWeight:700,cursor:submitting?"wait":"pointer",opacity:submitting?.6:1 }}>
+          {submitting?"Queuing…":"Refresh Inventory"}
+        </button>
+        {feedback&&<div role={feedback.success?"status":"alert"} style={{ marginTop:10,fontSize:12,color:feedback.success?T.success:T.danger,overflowWrap:"anywhere" }}>{feedback.text}</div>}
+      </section>
+      <section style={{ background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:16 }}>
+        <h3 style={{ margin:"0 0 6px",fontSize:13,color:T.slate }}>Recent Jobs</h3>
+        <p style={{ fontSize:11,color:T.muted }}>Latest 25 jobs · Refreshes every 5 seconds while this view is open</p>
+        {error&&<p role="alert" style={{ color:T.danger,fontSize:12 }}>{error}</p>}
+        {loading?<p role="status" style={{ color:T.muted }}>Loading jobs…</p>:jobs.length===0?<p style={{ color:T.muted }}>No jobs yet.</p>:(
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%",minWidth:700,tableLayout:"fixed",borderCollapse:"collapse",fontSize:12,color:T.slate }}>
+              <thead><tr style={{ background:T.surfaceAlt }}>{["Job ID","Type","Status","Created","Completed","Result"].map(label=><th key={label} style={{ textAlign:"left",padding:10,color:T.muted }}>{label}</th>)}</tr></thead>
+              <tbody>{jobs.map(job=>(
+                <tr key={job.id} style={{ borderTop:`1px solid ${T.border}` }}>
+                  <td style={{ padding:10,overflowWrap:"anywhere" }}>#{job.id}</td>
+                  <td style={{ padding:10,overflowWrap:"anywhere" }}>{job.job_type}</td>
+                  <td style={{ padding:10 }}><span style={{ ...(statusStyles[job.status] || statusStyles.queued),borderWidth:1,borderStyle:"solid",borderRadius:20,padding:"3px 8px",fontSize:11 }}>{job.status}</span></td>
+                  <td style={{ padding:10 }}>{job.created_at?fmtDate(job.created_at):"—"}</td>
+                  <td style={{ padding:10 }}>{job.completed_at?fmtDate(job.completed_at):"—"}</td>
+                  <td style={{ padding:10 }}><div style={{ maxHeight:160,overflowY:"auto",whiteSpace:"pre-wrap",overflowWrap:"anywhere" }}>
+                    {job.result_code!=null&&<div>Code: {job.result_code}</div>}
+                    {job.result_output&&<div>{job.result_output}</div>}
+                    {job.result_error&&<div style={{ color:T.danger }}>{job.result_error}</div>}
+                    {job.result_code==null&&!job.result_output&&!job.result_error?"—":null}
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RMMAssetVerification({ correlation, onViewAsset }) {
+  const c = correlation;
+  const [error,setError] = useState("");
+  const [opening,setOpening] = useState(false);
+  if (!c) return <section>Asset correlation unavailable</section>;
+  const asset = c.asset;
+  async function viewAsset() {
+    setOpening(true); setError("");
+    try { await onViewAsset(asset.id); }
+    catch (err) { setError(err.message || "Unable to open asset"); }
+    finally { setOpening(false); }
+  }
+  return <section style={{ gridColumn:"1 / -1",minWidth:0,background:T.surface,border:`1px solid ${c.state==="conflict"?T.danger:T.border}`,borderRadius:10,padding:16 }}>
+    <h3 style={{ color:c.state==="conflict"?T.danger:T.slate }}>Asset — {({linked:"Linked",possible_match:"Possible Match",unmatched:"No eligible asset match",conflict:"Review Required"})[c.state]}</h3>
+    <p style={{ color:T.muted,fontSize:12 }}>{c.reason}</p>
+    {asset&&<>
+      <dl style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12 }}>
+        {[["Asset Tag",asset.asset_tag],["Type",asset.type],["Name",asset.name],["Make / Model",[asset.make,asset.model].filter(Boolean).join(" ")],["Assigned To",asset.assigned_to],["Location",asset.location],["Administrative Status",asset.status]].map(([label,value])=><div key={label}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,color:T.slate,overflowWrap:"anywhere" }}>{value||"—"}</dd></div>)}
+      </dl>
+      <button type="button" disabled={opening} onClick={viewAsset} style={{ background:T.surfaceAlt,color:T.slate,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",cursor:"pointer" }}>{opening?"Opening…":"View Asset"}</button>
+      {error&&<p role="alert" style={{ color:T.danger }}>{error}</p>}
+    </>}
+    {c.candidates?.length>0&&<div style={{ color:T.muted }}>Candidates (not automatically selected): {c.candidates.map(a=><div key={a.id}>{a.asset_tag || `Asset #${a.id}`} · {a.type} · {a.name}</div>)}</div>}
+    {asset&&<>
+      <h3 style={{ color:T.slate }}>Asset Data Verification</h3>
+      <p style={{ color:T.muted,fontSize:12 }}>Asset Manager is authoritative. Endpoint observations do not change administrative values.</p>
+      {c.comparisons.map(row=><div key={row.field} style={{ padding:"10px 0",borderTop:`1px solid ${T.border}`,overflowWrap:"anywhere" }}>
+        <strong style={{ color:T.slate }}>{row.field}</strong> <span style={{ color:row.state==="match"?T.success:row.state==="mismatch"?T.danger:T.warningText }}>{row.state.replaceAll("_"," ")}</span>
+        <div style={{ color:T.muted,fontSize:12 }}>Asset Manager: {row.asset_value || "—"}</div>
+        <div style={{ color:T.muted,fontSize:12 }}>RMM observed: {row.rmm_value || "—"}</div>
+      </div>)}
+    </>}
+  </section>;
+}
+
+function RMMTab({ onViewAsset }) {
   const [summary,setSummary] = useState(null);
   const [devices,setDevices] = useState([]);
   const [audit,setAudit] = useState([]);
@@ -2460,15 +2606,13 @@ function RMMTab() {
                     ["Architecture",selectedDevice.architecture],
                     ["IP Address",selectedDevice.ip_address],
                     ["Serial Number",selectedDevice.serial_number],
+                    ["Manufacturer",selectedDevice.manufacturer],
+                    ["Model",selectedDevice.model],
                     ["Logged In User",selectedDevice.logged_in_user],
                     ["Agent Version",selectedDevice.agent_version],
                     ["Last Seen",selectedDevice.last_seen ? fmtDate(selectedDevice.last_seen) : "Never"],
                   ]],
-                  ["Asset",[
-                    ["Asset Tag",selectedDevice.asset_tag || "Not linked"],
-                    ["Asset Name",selectedDevice.asset_name],
-                    ["Assigned To",selectedDevice.assigned_to],
-                  ]],
+
                   ["Management",[
                     ["Agent Health",selectedDevice.health_status],
                     ["Heartbeat Age",selectedDevice.seconds_since_seen == null ? "Never" : `${selectedDevice.seconds_since_seen} seconds`],
@@ -2500,6 +2644,8 @@ function RMMTab() {
                     </dl>
                   </section>
                 ))}
+                <RMMAssetVerification correlation={selectedDevice.correlation} onViewAsset={onViewAsset} />
+                <RMMDeviceJobs key={selectedDevice.id} deviceId={selectedDevice.id} onDeviceRefresh={setSelectedDevice} />
               </div>
             ) : null}
           </div>
@@ -3940,7 +4086,15 @@ function App() {
   : activeTab==="shirts" ? <ShirtsTab />
   : activeTab==="tools" ? <ToolsTab />
   : activeTab==="trucks" ? <TrucksTab />
-  : activeTab==="rmm" ? <RMMTab />
+  : activeTab==="rmm" ? <RMMTab onViewAsset={async id=>{
+      const a = await window.api.get(`/api/assets/${id}`);
+      if (!["Desktop","Laptop","Server"].includes(a.type)) throw new Error("Asset is no longer eligible for RMM");
+      const asset = { ...a,tag:a.asset_tag,serial:a.serial_number,assignedTo:a.assigned_to,
+        windowsLicense:a.windows_license,autopilotReady:a.autopilot_ready,entraName:a.entra_name,
+        warrantyExpiry:a.warranty_expiry,warrantyExpired:a.warranty_expired,qrCode:a.qr_code,
+        shippingRecords:a.shipping_records||[],history:a.history||[],photos:a.photos||[] };
+      setActiveTab("assets"); openDetail(asset);
+    }} />
   : (
     <div style={{ padding:"20px 28px" }}>
       {showLookup&&<div style={{ marginBottom:16 }}><QRLookup assets={assets} onSelect={a=>{ openDetail(a); setShowLookup(false); }} /></div>}

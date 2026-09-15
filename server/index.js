@@ -137,7 +137,9 @@ async function initDB() {
       );
 
       ALTER TABLE rmm_devices
-        ADD COLUMN IF NOT EXISTS agent_token_hash VARCHAR(64);
+        ADD COLUMN IF NOT EXISTS agent_token_hash VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS manufacturer VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS model VARCHAR(100);
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,
@@ -151,6 +153,28 @@ async function initDB() {
         correlation_id VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS rmm_jobs (
+        id BIGSERIAL PRIMARY KEY,
+        device_id INTEGER NOT NULL REFERENCES rmm_devices(id) ON DELETE CASCADE,
+        job_type VARCHAR(50) NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status VARCHAR(20) NOT NULL DEFAULT 'queued',
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        claimed_at TIMESTAMP,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        result_code INTEGER,
+        result_output TEXT,
+        result_error TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rmm_jobs_device_status
+        ON rmm_jobs(device_id, status);
+
+      CREATE INDEX IF NOT EXISTS idx_rmm_jobs_created_at
+        ON rmm_jobs(created_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_rmm_audit_created_at
         ON rmm_audit_log(created_at DESC);

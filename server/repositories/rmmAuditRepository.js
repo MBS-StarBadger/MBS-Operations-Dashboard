@@ -27,8 +27,8 @@ async function findRecent(limit = 100) {
   return result.rows;
 }
 
-async function insert(entry) {
-  const result = await pool.query(
+async function insert(entry, client = pool) {
+  const result = await client.query(
     `
     INSERT INTO rmm_audit_log (
       user_id,
