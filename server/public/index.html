@@ -2099,6 +2099,9 @@ function RMMTab() {
   const [view,setView] = useState("devices");
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
+  const [selectedDevice,setSelectedDevice] = useState(null);
+  const [deviceLoading,setDeviceLoading] = useState(false);
+  const [deviceError,setDeviceError] = useState("");
 
   useEffect(()=>{
     let cancelled = false;
@@ -2135,6 +2138,24 @@ function RMMTab() {
     };
   },[]);
 
+  async function openDevice(device) {
+    setDeviceLoading(true);
+    setDeviceError("");
+    try {
+      const detail = await window.api.get(`/api/rmm/devices/${device.id}`);
+      setSelectedDevice(detail);
+    } catch (err) {
+      setDeviceError(err.message || "Unable to load device");
+    } finally {
+      setDeviceLoading(false);
+    }
+  }
+
+  function closeDevice() {
+    setSelectedDevice(null);
+    setDeviceError("");
+  }
+
   if (loading) {
     return (
       <div style={{ padding:40,color:T.muted }}>
@@ -2157,6 +2178,13 @@ function RMMTab() {
       </div>
     );
   }
+
+  const deviceHealthStyles = {
+    online:{ color:T.success,background:T.successBg,borderColor:T.successBorder },
+    stale:{ color:T.warningText,background:T.warningBg,borderColor:T.warningBorder },
+    offline:{ color:T.danger,background:T.dangerBg,borderColor:T.dangerBorder },
+    never:{ color:T.muted,background:T.surfaceAlt,borderColor:T.border },
+  };
 
   const stats = summary?.devices || {
     total:0,
@@ -2341,6 +2369,141 @@ function RMMTab() {
       </div>
 
       {view==="devices" ? (
+        selectedDevice || deviceLoading || deviceError ? (
+          <div style={{
+            background:T.surfaceRaised,
+            border:`1.5px solid ${T.border}`,
+            borderRadius:14,
+            overflow:"hidden",
+            boxShadow:`0 3px 10px ${T.shadow}`
+          }}>
+            <div style={{
+              padding:"15px 18px",
+              borderBottom:`1px solid ${T.border}`,
+              display:"flex",
+              alignItems:"center",
+              gap:14,
+              flexWrap:"wrap"
+            }}>
+              <button
+                type="button"
+                onClick={closeDevice}
+                disabled={deviceLoading}
+                style={{
+                  background:T.surface,
+                  border:`1px solid ${T.border}`,
+                  borderRadius:8,
+                  padding:"7px 11px",
+                  color:T.slate,
+                  fontFamily:T.font,
+                  fontSize:12,
+                  fontWeight:700,
+                  cursor:deviceLoading?"wait":"pointer",
+                  opacity:deviceLoading?.6:1
+                }}
+              >
+                ← Back
+              </button>
+              <div style={{ flex:1,minWidth:0 }}>
+                <div style={{ fontSize:15,fontWeight:700,color:T.slate,overflowWrap:"anywhere" }}>
+                  {selectedDevice?.hostname || "Device details"}
+                </div>
+                {selectedDevice&&(
+                  <div style={{ fontSize:11,color:T.muted,marginTop:3,overflowWrap:"anywhere" }}>
+                    Managed Endpoint ID: {selectedDevice.id}
+                  </div>
+                )}
+              </div>
+              {selectedDevice&&(
+                <span style={{
+                  ...deviceHealthStyles[selectedDevice.health_status] || deviceHealthStyles.never,
+                  borderWidth:1,
+                  borderStyle:"solid",
+                  borderRadius:20,
+                  padding:"4px 9px",
+                  fontSize:11,
+                  fontWeight:700,
+                  textTransform:"capitalize"
+                }}>
+                  {selectedDevice.health_status || "never"}
+                </span>
+              )}
+            </div>
+
+            {deviceLoading ? (
+              <div role="status" style={{ padding:24,color:T.muted,fontSize:13 }}>
+                Loading device details…
+              </div>
+            ) : deviceError ? (
+              <div role="alert" style={{
+                margin:18,
+                padding:14,
+                background:T.dangerBg,
+                color:T.danger,
+                border:`1px solid ${T.dangerBorder}`,
+                borderRadius:8,
+                fontSize:13
+              }}>
+                {deviceError}
+              </div>
+            ) : selectedDevice ? (
+              <div style={{
+                display:"grid",
+                gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",
+                gap:16,
+                padding:18
+              }}>
+                {[
+                  ["Overview",[
+                    ["Operating System",selectedDevice.os_name],
+                    ["Build",selectedDevice.os_version],
+                    ["Architecture",selectedDevice.architecture],
+                    ["IP Address",selectedDevice.ip_address],
+                    ["Serial Number",selectedDevice.serial_number],
+                    ["Logged In User",selectedDevice.logged_in_user],
+                    ["Agent Version",selectedDevice.agent_version],
+                    ["Last Seen",selectedDevice.last_seen ? fmtDate(selectedDevice.last_seen) : "Never"],
+                  ]],
+                  ["Asset",[
+                    ["Asset Tag",selectedDevice.asset_tag || "Not linked"],
+                    ["Asset Name",selectedDevice.asset_name],
+                    ["Assigned To",selectedDevice.assigned_to],
+                  ]],
+                  ["Management",[
+                    ["Agent Health",selectedDevice.health_status],
+                    ["Heartbeat Age",selectedDevice.seconds_since_seen == null ? "Never" : `${selectedDevice.seconds_since_seen} seconds`],
+                    ["Intune","Not connected yet"],
+                    ["Entra ID","Not connected yet"],
+                    ["Updates","Coming next"],
+                    ["Commands","Coming next"],
+                  ]],
+                ].map(([title,fields])=>(
+                  <section key={title} style={{
+                    background:T.surface,
+                    border:`1px solid ${T.border}`,
+                    borderRadius:10,
+                    padding:16,
+                    minWidth:0
+                  }}>
+                    <h3 style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:T.slate }}>
+                      {title}
+                    </h3>
+                    <dl style={{ margin:0,display:"grid",gap:12 }}>
+                      {fields.map(([label,value])=>(
+                        <div key={label}>
+                          <dt style={{ fontSize:11,color:T.muted,marginBottom:3 }}>{label}</dt>
+                          <dd style={{ margin:0,fontSize:13,color:T.slate,overflowWrap:"anywhere" }}>
+                            {value == null || value === "" ? "—" : value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
         <div style={{
           background:T.surfaceRaised,
           border:`1.5px solid ${T.border}`,
@@ -2462,7 +2625,23 @@ function RMMTab() {
                           fontWeight:700,
                           color:T.slate
                         }}>
-                          {device.hostname}
+                          <button
+                            type="button"
+                            onClick={()=>openDevice(device)}
+                            style={{
+                              background:"none",
+                              border:"none",
+                              padding:0,
+                              color:"#818cf8",
+                              fontFamily:"inherit",
+                              fontSize:"inherit",
+                              fontWeight:"inherit",
+                              textDecoration:"underline",
+                              cursor:"pointer"
+                            }}
+                          >
+                            {device.hostname}
+                          </button>
                         </td>
 
                         <td style={{ padding:"11px 14px" }}>
@@ -2540,6 +2719,7 @@ function RMMTab() {
             </div>
           )}
         </div>
+        )
       ) : (
         <div style={{
           background:T.surfaceRaised,

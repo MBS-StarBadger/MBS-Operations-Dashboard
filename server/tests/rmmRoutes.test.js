@@ -160,6 +160,94 @@ describe('RMM routes', () => {
     expect(pool.query).not.toHaveBeenCalled();
   });
 
+  test('GET /api/rmm/devices/:id returns device details for admins', async () => {
+    jwt.verify.mockReturnValue({
+      id: 1,
+      username: 'admin-user',
+      role: 'admin',
+    });
+
+    const device = {
+      id: 3,
+      asset_id: null,
+      agent_id: 'agent-lt226',
+      hostname: 'MBS-LT226',
+      os_name: 'Microsoft Windows 11 Pro',
+      os_version: '10.0.26200',
+      architecture: '64-bit',
+      serial_number: '85Q1D54',
+      ip_address: '10.0.2.93',
+      logged_in_user: 'MBS-LT226\\mbsit',
+      agent_version: '0.1.0',
+      health_status: 'online',
+      seconds_since_seen: 23,
+      asset_tag: null,
+      asset_name: null,
+      assigned_to: null,
+    };
+
+    pool.query.mockResolvedValueOnce({
+      rows: [device],
+    });
+
+    const response = await request(app)
+      .get('/api/rmm/devices/3')
+      .set('Authorization', 'Bearer valid-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(device);
+
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE d.id = $1'),
+      [3]
+    );
+  });
+
+  test('GET /api/rmm/devices/:id returns 404 when device does not exist', async () => {
+    jwt.verify.mockReturnValue({
+      id: 1,
+      username: 'admin-user',
+      role: 'admin',
+    });
+
+    pool.query.mockResolvedValueOnce({
+      rows: [],
+    });
+
+    const response = await request(app)
+      .get('/api/rmm/devices/9999')
+      .set('Authorization', 'Bearer valid-token');
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: 'RMM device not found',
+    });
+
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('WHERE d.id = $1'),
+      [9999]
+    );
+  });
+
+  test('GET /api/rmm/devices/:id rejects non-admin users', async () => {
+    jwt.verify.mockReturnValue({
+      id: 2,
+      username: 'standard-user',
+      role: 'user',
+    });
+
+    const response = await request(app)
+      .get('/api/rmm/devices/3')
+      .set('Authorization', 'Bearer valid-token');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: 'Admin only',
+    });
+
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
   test('GET /api/rmm/audit returns audit entries for admins', async () => {
     jwt.verify.mockReturnValue({
       id: 1,

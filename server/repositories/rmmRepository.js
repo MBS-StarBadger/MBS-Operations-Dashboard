@@ -42,6 +42,56 @@ async function getSummary() {
   };
 }
 
+async function findById(id) {
+  const result = await pool.query(
+    `
+    SELECT
+      d.id,
+      d.asset_id,
+      d.agent_id,
+      d.hostname,
+      d.os_name,
+      d.os_version,
+      d.architecture,
+      d.serial_number,
+      d.ip_address,
+      d.logged_in_user,
+      d.agent_version,
+      d.first_seen,
+      d.last_seen,
+      d.created_at,
+      d.updated_at,
+
+      CASE
+        WHEN d.last_seen IS NULL
+          THEN 'never'
+        WHEN d.last_seen >= NOW() - INTERVAL '3 minutes'
+          THEN 'online'
+        WHEN d.last_seen >= NOW() - INTERVAL '10 minutes'
+          THEN 'stale'
+        ELSE 'offline'
+      END AS health_status,
+
+      CASE
+        WHEN d.last_seen IS NULL THEN NULL
+        ELSE EXTRACT(EPOCH FROM (NOW() - d.last_seen))::int
+      END AS seconds_since_seen,
+
+      a.asset_tag,
+      a.name AS asset_name,
+      a.assigned_to
+
+    FROM rmm_devices d
+    LEFT JOIN assets a ON d.asset_id = a.id
+    WHERE d.id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+
+  return result.rows[0] || null;
+}
+
 async function createEnrollment({ agentId, hostname, tokenHash }) {
   const result = await pool.query(
     `
@@ -132,6 +182,7 @@ async function checkIn({
 module.exports = {
   findAll,
   getSummary,
+  findById,
   createEnrollment,
   findByAgentId,
   checkIn,

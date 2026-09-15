@@ -12,6 +12,8 @@ router.get('/', auth, adminOnly, rmmController.getRmmStatus);
 
 router.get('/devices', auth, adminOnly, rmmController.listDevices);
 
+router.get('/devices/:id', auth, adminOnly, rmmController.getDevice);
+
 router.post('/enroll', auth, adminOnly, rmmController.enrollDevice);
 
 router.post('/agent/checkin', rmmAgentAuth, rmmController.agentCheckIn);

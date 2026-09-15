@@ -30,6 +30,34 @@ async function listDevices(req, res) {
   res.json(devices);
 }
 
+async function getDevice(req, res) {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        error: 'Invalid device ID',
+      });
+    }
+
+    const device = await rmmRepository.findById(id);
+
+    if (!device) {
+      return res.status(404).json({
+        error: 'RMM device not found',
+      });
+    }
+
+    return res.json(device);
+  } catch (error) {
+    console.error('RMM device lookup failed:', error);
+
+    return res.status(500).json({
+      error: 'Unable to load RMM device',
+    });
+  }
+}
+
 
 async function enrollDevice(req, res) {
   try {
@@ -125,6 +153,7 @@ async function agentCheckIn(req, res) {
 module.exports = {
   getRmmStatus,
   listDevices,
+  getDevice,
   enrollDevice,
   agentCheckIn,
 };
