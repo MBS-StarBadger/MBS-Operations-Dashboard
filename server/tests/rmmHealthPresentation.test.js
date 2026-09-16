@@ -15,12 +15,12 @@ test('freshness distinguishes current at 15 minutes, stale beyond, never reporte
 test.each([
  ['cpu_utilization_percent',89.99,'cpu',false],['cpu_utilization_percent',90,'cpu',true],
  ['memory_utilization_percent',89.99,'memory',false],['memory_utilization_percent',90,'memory',true],
- ['system_drive_utilization_percent',89.99,'disk',false],['system_drive_utilization_percent',90,'disk',true],
+ ['system_drive_utilization_percent',89.99,'disk',true],['system_drive_utilization_percent',90,'disk',true],
  ['system_drive_free_bytes',10*1024**3,'disk',false],['system_drive_free_bytes',10*1024**3-1,'disk',true],
  ['uptime_seconds',30*86400-1,'uptime',false],['uptime_seconds',30*86400,'uptime',true],
 ])('%s threshold at %s flags %s=%s',(field,value,key,expected)=>{
  const result=health.evaluate({...good,[field]:value},now);
- expect(result.flags[key]).toBe(expected);expect(result.state).toBe(expected?'warning':'healthy');
+ expect(result.flags[key]).toBe(expected);expect(result.state).toBe(expected?(key==='disk'&&value!==89.99?'critical':'attention'):'healthy');
 });
 test('unknown disk inputs are not treated as healthy; either known violation suffices',()=>{
  expect(health.evaluate({...good,system_drive_free_bytes:null},now).flags.disk).toBeNull();
@@ -36,12 +36,12 @@ const html=fs.readFileSync(path.join(__dirname,'../public/index.html'),'utf8');
 function presentation(name,returnValue){
  const start=html.indexOf(`function ${name}(`);
  const code=html.slice(start,html.indexOf('  return <',start))+` return ${returnValue}; }`;
- return vm.runInNewContext(`${code};${name}`,{RMMHealth:health});
+ return vm.runInNewContext(`${code};${name}`,{RMMHealth:health,RMMUI:require('../public/rmmUI')});
 }
 test('fleet exposes all warning causes and stale state separately from device connectivity',()=>{
  const fleet=presentation('RMMFleetHealth','{h,title}');
  const result=fleet({device:{...good,cpu_utilization_percent:96,memory_utilization_percent:92,uptime_seconds:37*86400},now});
- expect(result.title).toContain('Warning / current');expect(result.title).toContain('CPU 96%');expect(result.title).toContain('Memory 92%');expect(result.title).toContain('Uptime 37d');
+ expect(result.title).toContain('Attention / current');expect(result.title).toContain('CPU 96%');expect(result.title).toContain('Memory 92%');expect(result.title).toContain('Uptime 37d');
  expect(fleet({device:good,now:now+900001}).h.label).toBe('Health stale');
 });
 test('detail presents actual capacities, utilization, uptime and clean unknown fields',()=>{
@@ -61,4 +61,30 @@ test('partial snapshot does not make omitted retained metrics appear current or 
 test('unavailable CPU never becomes current/healthy through coverage or retained values',()=>{
  expect(health.evaluate({...good,cpu_utilization_percent:null,health_sample_fields:Object.keys(good)},now)).toMatchObject({state:'unknown',flags:{cpu:null}});
  expect(health.evaluate({...good,health_sample_fields:Object.keys(good).filter(key=>key!=='cpu_utilization_percent')},now)).toMatchObject({state:'unknown',flags:{cpu:null}});
+});
+
+test.each([[79.99,'normal'],[80,'elevated'],[89.99,'elevated'],[90,'critical'],[98,'full'],[99,'full']])('disk %s maps to %s', (used,state)=>{
+ const result=health.evaluate({...good,system_drive_utilization_percent:used,system_drive_free_bytes:100*1024**3},now);
+ expect(result.diskState).toBe(state);
+ expect(result.state).toBe(state==='normal'?'healthy':state==='elevated'?'attention':'critical');
+});
+test('free bytes can independently escalate storage and most severe reason wins',()=>{
+ expect(health.evaluate({...good,system_drive_utilization_percent:20,system_drive_free_bytes:9*1024**3},now).diskState).toBe('critical');
+ expect(health.evaluate({...good,system_drive_utilization_percent:20,system_drive_free_bytes:0},now).diskState).toBe('full');
+ expect(health.evaluate({...good,system_drive_utilization_percent:98,system_drive_free_bytes:200*1024**3},now).diskState).toBe('full');
+ const result=health.evaluate({...good,cpu_utilization_percent:96,memory_utilization_percent:94,system_drive_utilization_percent:91},now);
+ expect(result.state).toBe('critical');expect(result.alerts.map(a=>a.key)).toEqual(['disk','memory','cpu']);
+});
+test('stale, absent, future and uncovered telemetry never produce current alerts',()=>{
+ const high={...good,cpu_utilization_percent:100,memory_utilization_percent:100,system_drive_utilization_percent:100,system_drive_free_bytes:0,uptime_seconds:40*86400};
+ for(const device of [{...high,health_snapshot_at:null},{...high,health_snapshot_at:new Date(now-900001).toISOString()},{...high,health_snapshot_at:new Date(now+1).toISOString()},{...high,health_sample_fields:[]}]){
+  const result=health.evaluate(device,now);expect(result.alerts).toEqual([]);expect(result.warnings).toEqual([]);expect(result.state).not.toBe('healthy');
+ }
+});
+test('detailed memory/CPU/uptime alerts retain values and snapshot wording',()=>{
+ const result=health.evaluate({...good,memory_utilization_percent:94,memory_available_bytes:1024**3,total_memory_bytes:16*1024**3,cpu_utilization_percent:90,uptime_seconds:30*86400},now);
+ expect(result.alerts.find(a=>a.key==='memory')).toMatchObject({title:'⚠ High Memory Usage',detail:'94% used · 1.0 GiB available / 16.0 GiB total'});
+ expect(result.alerts.find(a=>a.key==='cpu').title).toContain('current snapshot');
+ expect(result.alerts.find(a=>a.key==='uptime').detail).toBe('30 days 0 hours');
+ expect(health.evaluate({...good,status:'offline'},now)).toMatchObject({connectivity:'offline',state:'healthy'});
 });

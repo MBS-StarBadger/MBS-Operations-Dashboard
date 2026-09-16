@@ -9,7 +9,21 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="/jsqr.min.js"></script>
   <script src="/rmmHealth.js"></script>
-  <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }</style>
+  <script src="/rmmUI.js"></script>
+  <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }
+.rmm-panel{border-radius:10px;padding:16px;min-width:0}
+.rmm-panel h3{font-size:14px;margin:0 0 10px}
+.rmm-panel>p{margin:8px 0;line-height:1.5;font-size:12px}
+.rmm-panel>dl{margin:12px 0}
+.rmm-panel>button{margin-bottom:8px}
+.rmm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px}
+.rmm-label{font-size:11px;line-height:1.5}
+.rmm-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.rmm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.rmm-software td,.rmm-software th{vertical-align:top}
+.rmm-software tbody tr:focus-within{outline:1px solid #f97316;outline-offset:-1px}
+@media(max-width:600px){.rmm-panel{padding:12px}.rmm-panel input,.rmm-panel select{max-width:100%}}
+</style>
 </head>
 <body>
   <div id="root"></div>
@@ -2179,26 +2193,12 @@ function RMMDeviceJobs({ deviceId, onDeviceRefresh, onJobsRefresh }) {
         <p style={{ fontSize:11,color:T.muted }}>Latest 25 jobs · Refreshes every 5 seconds while this view is open</p>
         {error&&<p role="alert" style={{ color:T.danger,fontSize:12 }}>{error}</p>}
         {loading?<p role="status" style={{ color:T.muted }}>Loading jobs…</p>:jobs.length===0?<p style={{ color:T.muted }}>No jobs yet.</p>:(
-          <div style={{ overflowX:"auto" }}>
-            <table style={{ width:"100%",minWidth:700,tableLayout:"fixed",borderCollapse:"collapse",fontSize:12,color:T.slate }}>
-              <thead><tr style={{ background:T.surfaceAlt }}>{["Job ID","Type","Status","Created","Completed","Result"].map(label=><th key={label} style={{ textAlign:"left",padding:10,color:T.muted }}>{label}</th>)}</tr></thead>
-              <tbody>{jobs.map(job=>(
-                <tr key={job.id} style={{ borderTop:`1px solid ${T.border}` }}>
-                  <td style={{ padding:10,overflowWrap:"anywhere" }}>#{job.id}</td>
-                  <td style={{ padding:10,overflowWrap:"anywhere" }}>{job.job_type}</td>
-                  <td style={{ padding:10 }}><span style={{ ...(statusStyles[job.status] || statusStyles.queued),borderWidth:1,borderStyle:"solid",borderRadius:20,padding:"3px 8px",fontSize:11 }}>{job.status}</span></td>
-                  <td style={{ padding:10 }}>{job.created_at?fmtDate(job.created_at):"—"}</td>
-                  <td style={{ padding:10 }}>{job.completed_at?fmtDate(job.completed_at):"—"}</td>
-                  <td style={{ padding:10 }}><div style={{ maxHeight:160,overflowY:"auto",whiteSpace:"pre-wrap",overflowWrap:"anywhere" }}>
-                    {job.result_code!=null&&<div>Code: {job.result_code}</div>}
-                    {job.result_output&&<div>{job.result_output}</div>}
-                    {job.result_error&&<div style={{ color:T.danger }}>{job.result_error}</div>}
-                    {job.result_code==null&&!job.result_output&&!job.result_error?"—":null}
-                  </div></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
+          <ol style={{ listStyle:'none',margin:0,padding:0 }}>{jobs.map(job=><li key={job.id} style={{ padding:'12px 0 12px 14px',borderLeft:`2px solid ${(statusStyles[job.status]||statusStyles.queued).color}`,borderBottom:`1px solid ${T.border}`,marginLeft:3 }}>
+            <div className="rmm-heading"><strong style={{ color:T.slate,fontSize:13 }}>{RMMUI.jobName(job.job_type)}</strong><span style={{ ...(statusStyles[job.status]||statusStyles.queued),border:'1px solid',borderRadius:6,padding:'3px 7px',fontSize:11 }}>{RMMUI.jobStatus(job.status)}</span></div>
+            <p style={{ color:T.muted,fontSize:11,marginTop:5 }}>Requested {RMMUI.age(job.created_at)} · {RMMUI.timestamp(job.created_at)} · #{job.id}</p>
+            {job.completed_at&&<p style={{ color:T.muted,fontSize:11,marginTop:3 }}>Completed {RMMUI.timestamp(job.completed_at)} · Duration {RMMUI.duration((Date.parse(job.completed_at)-Date.parse(job.started_at||job.claimed_at||job.created_at))/1000)}</p>}
+            <div style={{ color:T.slate,fontSize:12,marginTop:6,maxHeight:140,overflowY:'auto',whiteSpace:'pre-wrap',overflowWrap:'anywhere' }}>{job.result_output||(!job.result_error?'No result reported yet.':null)}{job.result_error&&<div style={{ color:T.danger }}>{job.result_error}</div>}{job.result_code!=null&&<span style={{ color:T.muted,fontSize:11 }}>Result code: {job.result_code}</span>}</div>
+          </li>)}</ol>
         )}
       </section>
     </div>
@@ -2253,10 +2253,10 @@ function RMMWindowsUpdates({ device: d, jobSnapshot }) {
       setFeedback({success:false,text:error.message || 'Unable to queue Windows Update scan'});
     } finally { pending.current = false; setSubmitting(false); }
   }
-  const date = value => value ? new Date(value).toLocaleString() : 'Unknown';
+  const date = RMMUI.timestamp;
   const bool = value => value == null ? 'Unknown' : value ? 'Yes' : 'No';
   const rows = d.pending_updates;
-  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+  return <section className="rmm-panel" style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
     <h3>Windows Update</h3>
     <button type="button" disabled={submitting} onClick={scanUpdates} style={{ background:T.surfaceAlt,color:T.slate,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 13px',cursor:submitting?'wait':'pointer' }}>{submitting?'Queuing…':'Scan for Updates'}</button>
     {feedback&&<p role={feedback.success?'status':'alert'} style={{ color:feedback.success?T.success:T.danger }}>{feedback.text}</p>}
@@ -2270,12 +2270,12 @@ function RMMWindowsUpdates({ device: d, jobSnapshot }) {
     </dl>
     {rows?.length>0 ? <>
       <p style={{ color:T.muted,fontSize:12 }}>Showing {rows.length} of {d.update_pending_count??'unknown'} pending updates (up to 200 details).</p>
-      <div style={{ overflowX:'auto',maxHeight:400 }}><table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
-        <thead><tr>{['Update / identity','KB','Categories','Severity','Downloaded','Installed','May require reboot'].map(label=><th key={label} style={{ textAlign:'left',padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
-        <tbody>{rows.map((u,i)=><tr key={`${u.update_id}-${u.revision}-${i}`}>
-          {[<>{u.title||'Untitled update'}<div style={{ color:T.muted,fontSize:10 }}>{u.update_id}{u.revision!=null?` · revision ${u.revision}`:''}</div></>,u.kb_ids?.join(', ')||'—',u.categories?.join(', ')||'Unknown',u.severity||'Unknown',bool(u.downloaded),bool(u.installed),bool(u.reboot_may_be_required)].map((value,j)=><td key={j} style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:320,overflowWrap:'anywhere' }}>{value}</td>)}
-        </tr>)}</tbody>
-      </table></div>
+      <div style={{ maxHeight:420,overflowY:'auto' }}>{rows.map((u,i)=><article key={`${u.update_id}-${u.revision}-${i}`} style={{ padding:'10px 0',borderTop:`1px solid ${T.border}` }}>
+        <div className="rmm-heading"><strong style={{ fontSize:13,overflowWrap:'anywhere',flex:1 }}>{RMMUI.text(u.title)}</strong><RMMChip warning={RMMUI.updateKind(u)==='Security'}>{RMMUI.updateKind(u)}</RMMChip></div>
+        <p style={{ color:T.muted,fontSize:11,margin:'5px 0' }}>{u.kb_ids?.length?u.kb_ids.map(kb=>/^KB/i.test(kb)?kb:`KB${kb}`).join(' · '):'KB: Unknown'} · {u.categories?.join(' · ')||'Category: Unknown'}</p>
+        <div className="rmm-chips"><RMMChip>Severity: {RMMUI.text(u.severity)}</RMMChip><RMMChip>Downloaded: {bool(u.downloaded)}</RMMChip><RMMChip warning={u.reboot_may_be_required===true}>May require reboot: {bool(u.reboot_may_be_required)}</RMMChip></div>
+        <details style={{ fontSize:11,color:T.muted,marginTop:6 }}><summary style={{ cursor:'pointer' }}>Update identity</summary><div style={{ overflowWrap:'anywhere',userSelect:'all' }}>{RMMUI.text(u.update_id)} · Revision {u.revision??'Unknown'} · Installed: {bool(u.installed)}</div></details>
+      </article>)}</div>
     </> : <p style={{ color:T.muted }}>{d.update_pending_count===0?'Zero pending updates in the last successful snapshot.':'Pending update details not reported.'}</p>}
   </section>;
 }
@@ -2315,9 +2315,10 @@ function RMMSoftwareInventory({ device: d, jobSnapshot }) {
     } finally { pending.current=false; setSubmitting(false); }
   }
   const rows=filterRmmSoftware(d.installed_software,query,view);
-  const date=value=>value?new Date(value).toLocaleString():'Unknown';
-  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+  const date=RMMUI.timestamp;
+  return <section className="rmm-panel" style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
     <h3>Software</h3>
+    <p style={{ color:T.muted,fontSize:12,marginBottom:10 }}>{d.software_count??'Unknown'} installed applications · Last scanned {RMMUI.age(d.software_refreshed_at)}</p>
     <button type="button" disabled={submitting} onClick={refreshSoftware} style={{ background:T.surfaceAlt,color:T.slate,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 13px',cursor:submitting?'wait':'pointer' }}>{submitting?'Queuing…':'Refresh Software Inventory'}</button>
     {feedback&&<p role={feedback.success?'status':'alert'} style={{ color:feedback.success?T.success:T.danger }}>{feedback.text}</p>}
     <p role="status">{rmmSoftwareState(d)}</p>
@@ -2326,82 +2327,99 @@ function RMMSoftwareInventory({ device: d, jobSnapshot }) {
     </dl>
     <p style={{ color:T.muted,fontSize:12 }}>Machine-wide software · Scheduled weekly · Stale after 8 days. Failed attempts retain the last successful snapshot. Expand an application for its registry source and install location.</p>
     <div style={{ display:'flex',flexWrap:'wrap',gap:8,marginBottom:12 }}>
-      <input aria-label="Search installed software" placeholder="Search application, version or publisher" value={query} onChange={e=>setQuery(e.target.value)} style={{ ...getIBase(),flex:1,minWidth:200 }} />
-      <select aria-label="Filter software registry view" value={view} onChange={e=>setView(e.target.value)} style={getIBase()}><option value="">All registry views</option><option value="registry64">64-bit registry view</option><option value="registry32">32-bit registry view</option></select>
+      <input aria-label="Search installed software" placeholder="Search application, version or publisher" value={query} onChange={e=>setQuery(e.target.value)} style={{ ...getIBase(),flex:'2 1 220px',minWidth:0 }} />
+      <select aria-label="Filter software registry view" value={view} onChange={e=>setView(e.target.value)} style={{...getIBase(),flex:'1 1 170px',width:'auto'}}><option value="">All registry views</option><option value="registry64">64-bit registry view</option><option value="registry32">32-bit registry view</option></select>
     </div>
     <p style={{ color:T.muted,fontSize:12 }}>{rows.length} matching applications</p>
-    {rows.length ? <div style={{ overflowX:'auto',maxHeight:440 }}><table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
+    {rows.length ? <div style={{ overflowX:'auto',maxHeight:440 }}><table className="rmm-software" style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
       <thead><tr>{['Application','Version','Publisher','Install Date'].map(label=><th key={label} style={{ textAlign:'left',padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
       <tbody>{rows.map((app,i)=><tr key={i}>
         <td style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:340,overflowWrap:'anywhere' }}><details><summary style={{ cursor:'pointer' }}>{app.display_name}</summary><div style={{ color:T.muted,marginTop:8 }}>Registry view: {app.source_views?.join(', ')||'Unknown'}<br/>Install location: {app.install_location||'Unknown'}</div></details></td>
-        {[app.display_version,app.publisher,app.install_date].map((value,j)=><td key={j} style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:240,overflowWrap:'anywhere' }}>{value||'Unknown'}</td>)}
+        {[app.display_version,app.publisher,app.install_date].map((value,j)=><td key={j} style={{ padding:'9px 8px',borderTop:`1px solid ${T.border}`,maxWidth:240,fontFamily:j===0?T.mono:T.font,fontVariantNumeric:'tabular-nums',overflowWrap:'anywhere',color:j===1?T.muted:T.slate }}>{RMMUI.text(value)}</td>)}
       </tr>)}</tbody>
     </table></div> : <p style={{ color:T.muted }}>{d.installed_software==null?'Software snapshot not reported.':d.software_count===0?'No installed applications reported.':'No applications match the filters.'}</p>}
   </section>;
 }
 
+function RMMHealthMeter({ label, value, warning }) {
+  const n=RMMUI.number(value);
+  return n==null?<div style={{ color:T.muted,fontSize:11,marginTop:8 }}>Utilization unknown</div>:<div role="progressbar" aria-label={label} aria-valuenow={n} aria-valuemin={0} aria-valuemax={100} style={{ height:5,background:T.border,borderRadius:4,marginTop:10,overflow:'hidden' }}><div style={{ width:`${Math.max(0,Math.min(100,n))}%`,height:'100%',background:warning?T.warningText:'#f97316' }} /></div>;
+}
+
 function RMMDeviceHealth({ device: d, now }) {
   const h=RMMHealth.evaluate(d,now);
-  const pct=RMMHealth.percent, bytes=RMMHealth.bytes;
+  const pct=RMMUI.percent, bytes=RMMUI.bytes;
   const value=key=>RMMHealth.currentValue(d,key);
   const metrics=[
     ['CPU',pct(value('cpu_utilization_percent')),h.flags.cpu],
     ['Memory',`${pct(value('memory_utilization_percent'))} used · ${bytes(RMMHealth.used(value('total_memory_bytes'),value('memory_available_bytes')))} used · ${bytes(value('memory_available_bytes'))} available / ${bytes(value('total_memory_bytes'))} total`,h.flags.memory],
     [`System Drive ${value('system_drive')||'Unknown'}`,`${pct(value('system_drive_utilization_percent'))} used · ${bytes(RMMHealth.used(value('system_drive_total_bytes'),value('system_drive_free_bytes')))} used · ${bytes(value('system_drive_free_bytes'))} free / ${bytes(value('system_drive_total_bytes'))} total`,h.flags.disk],
-    ['Uptime',RMMHealth.uptime(value('uptime_seconds')),h.flags.uptime],
-    ['Last boot',value('last_boot_at')?new Date(value('last_boot_at')).toLocaleString():'Unknown',false],
-    ['Last health snapshot',d.health_snapshot_at?new Date(d.health_snapshot_at).toLocaleString():'Never reported',false],
+    ['Uptime',RMMUI.duration(value('uptime_seconds')),h.flags.uptime],
+    ['Last boot',RMMUI.timestamp(value('last_boot_at')),false],
+    ['Last health snapshot',d.health_snapshot_at?RMMUI.timestamp(d.health_snapshot_at):'Never reported',false],
     ['Telemetry age',h.ageMs==null?'Unknown':h.ageMs<0?'Unknown (endpoint clock is ahead)':`${Math.floor(h.ageMs/60000)} minutes · ${h.freshness}`,false],
   ];
-  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+  return <section className="rmm-panel" style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
     <h3>Device Health</h3>
-    <p role="status" style={{ color:h.state==='warning'?T.warningText:T.muted }}>{h.label}</p>
+    <p role="status" style={{ color:h.state==='critical'?T.danger:h.state==='attention'?T.warningText:T.muted }}>{h.label}</p>
     {h.freshness!=='current'&&<p style={{ color:T.muted,fontSize:12 }}>These are last-reported values; current device health is unknown.</p>}
-    {h.warnings.length>0&&<p style={{ color:T.warningText,fontSize:12 }}>Snapshot warnings: {h.warnings.join(' · ')}</p>}
+    <div className="rmm-chips">{h.alerts.map(alert=><RMMChip key={alert.key} warning critical={alert.severity==='critical'}>{alert.title} — {alert.detail}</RMMChip>)}</div>
     {h.unknown.length>0&&<p style={{ color:T.muted,fontSize:12 }}>Unknown or not refreshed in latest snapshot: {h.unknown.join(', ')}</p>}
-    <dl style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16 }}>
-      {metrics.map(([label,value,warning])=><div key={label}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,fontSize:13,color:warning?T.warningText:T.slate,overflowWrap:'anywhere' }}>{warning?'Warning · ':''}{value}</dd></div>)}
+    <dl className="rmm-grid" style={{ marginTop:12 }}>
+      {metrics.map(([label,displayValue,warning],i)=><div key={label} style={{ padding:12,background:T.surfaceAlt,border:`1px solid ${T.border}`,borderRadius:8 }}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,fontSize:13,color:warning?T.warningText:T.slate,overflowWrap:'anywhere' }}>{warning?'Warning · ':''}{displayValue}</dd>{i<3&&<RMMHealthMeter label={label} value={value(['cpu_utilization_percent','memory_utilization_percent','system_drive_utilization_percent'][i])} warning={warning} />}</div>)}
     </dl>
-    <p style={{ color:T.muted,fontSize:12 }}>Latest snapshot only · Warnings at CPU {RMMHealth.thresholds.cpuPercent}%, memory {RMMHealth.thresholds.memoryPercent}%, disk {RMMHealth.thresholds.diskPercent}% used; disk also warns below {bytes(RMMHealth.thresholds.diskFreeBytes)} free. Uptime warns at {RMMHealth.thresholds.uptimeSeconds/86400} days. Health becomes stale after {RMMHealth.thresholds.freshnessMs/60000} minutes. Online/offline status is separate.</p>
+    <p style={{ color:T.muted,fontSize:12 }}>Latest snapshot only · CPU and memory high at {RMMHealth.thresholds.cpuPercent}%; storage elevated at {RMMHealth.thresholds.diskElevatedPercent}%, critical at {RMMHealth.thresholds.diskPercent}%, full at {RMMHealth.thresholds.diskFullPercent}% or zero free bytes; disk also warns below {bytes(RMMHealth.thresholds.diskFreeBytes)} free. Uptime warns at {RMMHealth.thresholds.uptimeSeconds/86400} days. Health becomes stale after {RMMHealth.thresholds.freshnessMs/60000} minutes. Online/offline status is separate.</p>
   </section>;
 }
 
 function RMMFleetHealth({ device, now }) {
   const h=RMMHealth.evaluate(device,now);
   const title=[h.label,...h.warnings,...h.unknown.map(name=>`${name}: unknown`)].join('\n');
-  return <details style={{ color:h.state==='warning'?T.warningText:T.muted,fontSize:11,marginTop:4,maxWidth:240 }}>
+  return <details style={{ color:h.state==='critical'?T.danger:h.state==='attention'?T.warningText:T.muted,fontSize:11,marginTop:4,maxWidth:240 }}>
     <summary title={title} style={{ cursor:'pointer' }}>{h.label}{h.warnings.length?` · ${h.warnings[0]}${h.warnings.length>1?` (+${h.warnings.length-1})`:''}`:''}</summary>
     <div style={{ whiteSpace:'pre-line',paddingTop:4 }}>{title}</div>
   </details>;
 }
 
+function RMMChip({ children, warning=false, critical=false }) {
+  return <span style={{ display:'inline-flex',alignItems:'center',border:`1px solid ${critical?T.dangerBorder:warning?T.warningBorder:T.border}`,background:critical?T.dangerBg:warning?T.warningBg:T.surfaceAlt,color:critical?T.danger:warning?T.warningText:T.muted,borderRadius:6,padding:'4px 7px',fontSize:11,fontWeight:600 }}>{children}</span>;
+}
+function RMMEndpointSummary({ device:d, now }) {
+  const h=RMMHealth.evaluate(d,now);
+  return <section className="rmm-panel" style={{ gridColumn:'1 / -1',background:T.surface,color:T.slate,border:`1px solid ${T.border}`,borderTop:'3px solid #f97316' }}>
+    <div className="rmm-heading"><div><h2 style={{ fontSize:21 }}>{RMMUI.text(d.hostname)}</h2><p style={{ color:T.muted,fontSize:13,marginTop:4 }}>{[d.manufacturer,d.model].filter(Boolean).map(RMMUI.text).join(' · ')||'Unknown manufacturer / model'}</p></div><RMMChip>{d.health_status||'Unknown'} · {d.asset_tag||'No linked asset tag'}</RMMChip></div>
+    <dl className="rmm-grid" style={{ marginTop:14 }}>{[['Serial',d.serial_number],['Windows',[d.os_name,d.os_version,d.os_build&&`Build ${d.os_build}`].filter(Boolean).join(' · ')],['Logged-in user',d.logged_in_user],['Last seen',`${RMMUI.age(d.last_seen,now)} · ${RMMUI.timestamp(d.last_seen)}`],['IP address',d.ip_address],['Agent',d.agent_version]].map(([label,value])=><div key={label}><dt className="rmm-label" style={{ color:T.muted }}>{label}</dt><dd style={{ fontSize:12,overflowWrap:'anywhere' }}>{RMMUI.text(value)}</dd></div>)}</dl>
+    <div className="rmm-chips" style={{ marginTop:12 }}><RMMChip warning={h.state==='attention'} critical={h.state==='critical'}>{h.label}</RMMChip>{h.alerts.map(alert=><RMMChip key={alert.key} warning critical={alert.severity==='critical'}>{alert.title} — {alert.detail}</RMMChip>)}<RMMChip warning={d.update_reboot_required===true}>{rmmUpdateState(d)}</RMMChip><RMMChip>{rmmSoftwareState(d)}</RMMChip><RMMChip>Hardware: last check-in {RMMUI.age(d.last_seen,now)}</RMMChip></div>
+    <p className="rmm-label" style={{ color:T.muted,marginTop:6 }}>Hardware has no separate scan timestamp; check-in time is shown for context.</p>
+  </section>;
+}
 function RMMHardwareInventory({ device: d }) {
-  const bytes = value => {
-    if (value == null) return "—";
-    const n = Number(value);
-    return n >= 1024**4 ? `${(n/1024**4).toFixed(2)} TiB` : `${(n/1024**3).toFixed(2)} GiB`;
-  };
-  const date = value => value ? new Date(value).toLocaleString() : "—";
-  const uptime = value => value == null ? "—" : `${Math.floor(Number(value)/86400)}d ${Math.floor(Number(value)%86400/3600)}h ${Math.floor(Number(value)%3600/60)}m (at check-in)`;
-  const groups = [
-    ["System", [["Manufacturer",d.manufacturer],["Model",d.model],["Serial Number",d.serial_number],["UUID",d.system_uuid]]],
-    ["Operating System", [["Edition",d.os_name],["Version / Build",[d.os_version,d.os_build].filter(Boolean).join(" / ")],["Architecture",d.architecture],["Last Boot",date(d.last_boot_at)],["Uptime",uptime(d.uptime_seconds)]]],
-    ["Processor", [["Manufacturer",d.cpu_manufacturer],["CPU",d.cpu_name],["Sockets",d.processor_count],["Physical Cores",d.core_count],["Logical Threads",d.logical_processor_count]]],
-    ["BIOS", [["Manufacturer",d.bios_manufacturer],["Version",d.bios_version],["Release Date",date(d.bios_release_date)]]],
-  ];
-  const table = (rows, columns) => !rows?.length ? <p style={{ color:T.muted }}>Not reported</p> : <div style={{ overflowX:"auto" }}><table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
-    <thead><tr>{columns.map(([label])=><th key={label} style={{ textAlign:"left",padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
-    <tbody>{rows.map((row,i)=><tr key={i}>{columns.map(([label,key,format])=><td key={key} title={row[key]==null?undefined:String(row[key])} style={{ padding:8,color:T.slate,borderTop:`1px solid ${T.border}`,overflowWrap:"anywhere",maxWidth:240 }}>{format?format(row[key]):row[key]??"—"}</td>)}</tr>)}</tbody>
-  </table></div>;
-  return <section style={{ gridColumn:"1 / -1",minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface }}>
-    <h3 style={{ color:T.slate }}>Hardware / System Inventory</h3>
-    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16 }}>
-      {groups.map(([title,fields])=><div key={title} style={{ minWidth:0 }}><h4 style={{ color:T.slate }}>{title}</h4><dl>{fields.map(([label,value])=><div key={label} style={{ marginBottom:8 }}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,color:T.slate,fontSize:12,overflowWrap:"anywhere" }}>{value??"—"}</dd></div>)}</dl></div>)}
+  const f=RMMUI, health=RMMHealth.evaluate(d);
+  const current=key=>health.freshness==='current'?RMMHealth.currentValue(d,key):null;
+  const alertFor=key=>health.alerts.find(alert=>alert.key===key);
+  // Coverage is checked even for a stale snapshot, so retained older fields cannot look sampled.
+  const reported=key=>health.freshness!=='unknown'?RMMHealth.currentValue(d,key):null;
+  const volumeTotal=reported('system_drive_total_bytes'),volumeFree=reported('system_drive_free_bytes');
+  const volumeUsed=RMMHealth.used(volumeTotal,volumeFree);
+  const volumeDetails=[reported('system_drive_utilization_percent')!=null?`${f.percent(reported('system_drive_utilization_percent'))} used`:null,volumeUsed!=null?`${f.bytes(volumeUsed)} used space`:null,volumeFree!=null?`${f.bytes(volumeFree)} free`:null,volumeTotal!=null?`${f.bytes(volumeTotal)} total`:null].filter(Boolean);
+
+  const card={background:T.surfaceAlt,border:`1px solid ${T.border}`,borderRadius:8,padding:12,minWidth:0};
+  return <section className="rmm-panel" style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,background:T.surface,color:T.slate }}>
+    <h3>Hardware inventory</h3>
+    <div className="rmm-grid" style={{ marginTop:12 }}>
+      <article style={card}><div className="rmm-label" style={{ color:T.muted }}>PROCESSOR</div><h4 style={{ margin:'6px 0',fontSize:15 }}>{f.text(d.cpu_name)}</h4><p style={{ fontSize:12 }}>{f.cpuSummary(d)}</p><p className="rmm-label" style={{ color:T.muted,marginTop:6 }}>{f.text(d.cpu_manufacturer)} · Current load {f.percent(current('cpu_utilization_percent'))}</p>{alertFor('cpu')&&<RMMChip warning>{alertFor('cpu').title} — {alertFor('cpu').detail}</RMMChip>}</article>
+      <article style={card}><div className="rmm-label" style={{ color:T.muted }}>INSTALLED MEMORY</div><h4 style={{ margin:'6px 0',fontSize:20 }}>{f.bytes(d.total_memory_bytes)}</h4><p style={{ fontSize:12 }}>{Array.isArray(d.memory_modules)?`${d.memory_modules.length} physical modules`:'Module inventory unknown'}</p><p className="rmm-label" style={{ color:T.muted,marginTop:6 }}>{f.percent(current('memory_utilization_percent'))} used · {f.bytes(current('memory_available_bytes'))} available</p>{alertFor('memory')&&<RMMChip warning>{alertFor('memory').title} — {alertFor('memory').detail}</RMMChip>}</article>
+      <article style={card}><div className="rmm-label" style={{ color:T.muted }}>WINDOWS SYSTEM VOLUME</div><h4 style={{ margin:'6px 0' }}>Storage · {f.text(reported('system_drive'))}</h4><p style={{ fontSize:12 }}>{volumeDetails.join(' · ')||'Capacity: Unknown'}</p>{health.freshness==='stale'&&<p className="rmm-label" style={{ color:T.muted }}>Last reported · {f.timestamp(d.health_snapshot_at)} · Stale telemetry</p>}<RMMChip warning={health.diskState==='elevated'} critical={['critical','full'].includes(health.diskState)}>{alertFor('disk')?alertFor('disk').title:health.freshness==='stale'?'Storage Stale':health.diskState==='normal'?'Storage Normal':'Storage Unknown'}</RMMChip></article>
     </div>
-    <h4 style={{ color:T.slate }}>Memory · <span title={d.total_memory_bytes==null?undefined:`${d.total_memory_bytes} bytes`}>{bytes(d.total_memory_bytes)}</span></h4>
-    {table(d.memory_modules, [["Capacity","capacity_bytes",bytes],["Manufacturer","manufacturer"],["Part Number","part_number"],["Speed (MHz)","speed_mhz"],["Configured (MHz)","configured_speed_mhz"],["Bank","bank"],["Locator","locator"]])}
-    <h4 style={{ color:T.slate }}>Physical Storage</h4>
-    {table(d.physical_disks, [["Model","model"],["Serial","serial_number"],["Capacity","capacity_bytes",bytes],["Media","media_type"],["Reported Interface","bus_type"]])}
+    <h4 style={{ margin:'16px 0 8px',fontSize:12 }}>Memory modules</h4>
+    <div className="rmm-grid">{d.memory_modules?.length?d.memory_modules.map((m,i)=><article key={i} style={card}>
+      <strong style={{ fontSize:13 }}>{f.knownDetails([m.locator,m.bank])}</strong><p title={typeof m.manufacturer==='string'?`Reported manufacturer: ${m.manufacturer}`:undefined} style={{ margin:'6px 0',fontSize:14 }}>{f.knownDetails([m.capacity_bytes!=null?f.bytes(m.capacity_bytes):null,f.memoryManufacturer(m.manufacturer)])}</p>
+      <p style={{ fontSize:12 }}>Configured: {m.configured_speed_mhz==null?'Unknown':`${m.configured_speed_mhz} MHz (reported)`}</p><p className="rmm-label" style={{ color:T.muted }}>Rated: {m.speed_mhz==null?'Unknown':`${m.speed_mhz} MHz (reported)`}</p><p className="rmm-label" style={{ color:T.muted,marginTop:6,overflowWrap:'anywhere' }}>Part: {f.text(m.part_number)}</p>
+    </article>):<p style={{ color:T.muted,fontSize:12 }}>Physical modules: Unknown</p>}</div>
+    <h4 style={{ margin:'16px 0 8px',fontSize:12 }}>Physical disks</h4>
+    <div className="rmm-grid">{d.physical_disks?.length?d.physical_disks.map((disk,i)=><article key={i} style={card}><strong style={{ fontSize:13 }}>{f.text(disk.model)}</strong><p style={{ margin:'6px 0',fontSize:16 }}>{f.bytes(disk.capacity_bytes)}</p><p style={{ fontSize:12 }}>{f.knownDetails([disk.manufacturer,disk.media_type,disk.bus_type])}</p><p className="rmm-label" style={{ color:T.muted,marginTop:6,overflowWrap:'anywhere' }}>Serial: {f.text(disk.serial_number)}</p></article>):<p style={{ color:T.muted,fontSize:12 }}>Physical disks: Unknown</p>}</div>
+    <p className="rmm-label" style={{ color:T.muted,marginTop:8 }}>Physical disk capacity is distinct from the Windows system volume shown in Device Health.</p>
+    <details style={{ marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:10 }}><summary style={{ cursor:'pointer',fontSize:13,fontWeight:600 }}>System &amp; firmware</summary><dl className="rmm-grid" style={{ marginTop:10 }}>{[['BIOS manufacturer',d.bios_manufacturer],['BIOS version',d.bios_version],['BIOS release',f.timestamp(d.bios_release_date)],['Architecture',d.architecture]].map(([label,value])=><div key={label}><dt className="rmm-label" style={{ color:T.muted }}>{label}</dt><dd style={{ fontSize:12 }}>{f.text(value)}</dd></div>)}<div><dt className="rmm-label" style={{ color:T.muted }}>System UUID · select to copy</dt><dd style={{ fontSize:11,fontFamily:T.mono,userSelect:'all',overflowWrap:'anywhere' }}>{f.text(d.system_uuid)}</dd></div></dl></details>
   </section>;
 }
 
@@ -2417,7 +2435,7 @@ function RMMAssetVerification({ correlation, onViewAsset }) {
     catch (err) { setError(err.message || "Unable to open asset"); }
     finally { setOpening(false); }
   }
-  return <section style={{ gridColumn:"1 / -1",minWidth:0,background:T.surface,border:`1px solid ${c.state==="conflict"?T.danger:T.border}`,borderRadius:10,padding:16 }}>
+  return <section className="rmm-panel" style={{ gridColumn:"1 / -1",minWidth:0,background:T.surface,border:`1px solid ${c.state==="conflict"?T.danger:T.border}`,borderRadius:10,padding:16 }}>
     <h3 style={{ color:c.state==="conflict"?T.danger:T.slate }}>Asset — {({linked:"Linked",possible_match:"Possible Match",unmatched:"No eligible asset match",conflict:"Review Required"})[c.state]}</h3>
     <p style={{ color:T.muted,fontSize:12 }}>{c.reason}</p>
     {asset&&<>
@@ -2760,7 +2778,7 @@ function RMMTab({ onViewAsset }) {
               </button>
               <div style={{ flex:1,minWidth:0 }}>
                 <div style={{ fontSize:15,fontWeight:700,color:T.slate,overflowWrap:"anywhere" }}>
-                  {selectedDevice?.hostname || "Device details"}
+                  {selectedDevice ? "Endpoint console" : "Device details"}
                 </div>
                 {selectedDevice&&(
                   <div style={{ fontSize:11,color:T.muted,marginTop:3,overflowWrap:"anywhere" }}>
@@ -2803,55 +2821,11 @@ function RMMTab({ onViewAsset }) {
             ) : selectedDevice ? (
               <div style={{
                 display:"grid",
-                gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",
-                gap:16,
+                gridTemplateColumns:"minmax(0,1fr)",
+                gap:12,
                 padding:18
               }}>
-                {[
-                  ["Overview",[
-                    ["Operating System",selectedDevice.os_name],
-                    ["Build",selectedDevice.os_version],
-                    ["Architecture",selectedDevice.architecture],
-                    ["IP Address",selectedDevice.ip_address],
-                    ["Serial Number",selectedDevice.serial_number],
-                    ["Manufacturer",selectedDevice.manufacturer],
-                    ["Model",selectedDevice.model],
-                    ["Logged In User",selectedDevice.logged_in_user],
-                    ["Agent Version",selectedDevice.agent_version],
-                    ["Last Seen",selectedDevice.last_seen ? fmtDate(selectedDevice.last_seen) : "Never"],
-                  ]],
-
-                  ["Management",[
-                    ["Agent Health",selectedDevice.health_status],
-                    ["Heartbeat Age",selectedDevice.seconds_since_seen == null ? "Never" : `${selectedDevice.seconds_since_seen} seconds`],
-                    ["Intune","Not connected yet"],
-                    ["Entra ID","Not connected yet"],
-                    ["Updates","Coming next"],
-                    ["Commands","Coming next"],
-                  ]],
-                ].map(([title,fields])=>(
-                  <section key={title} style={{
-                    background:T.surface,
-                    border:`1px solid ${T.border}`,
-                    borderRadius:10,
-                    padding:16,
-                    minWidth:0
-                  }}>
-                    <h3 style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:T.slate }}>
-                      {title}
-                    </h3>
-                    <dl style={{ margin:0,display:"grid",gap:12 }}>
-                      {fields.map(([label,value])=>(
-                        <div key={label}>
-                          <dt style={{ fontSize:11,color:T.muted,marginBottom:3 }}>{label}</dt>
-                          <dd style={{ margin:0,fontSize:13,color:T.slate,overflowWrap:"anywhere" }}>
-                            {value == null || value === "" ? "—" : value}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </section>
-                ))}
+                <RMMEndpointSummary device={selectedDevice} now={healthNow} />
                 <RMMDeviceHealth device={selectedDevice} now={healthNow} />
                 <RMMHardwareInventory device={selectedDevice} />
                 <RMMWindowsUpdates key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />

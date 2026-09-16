@@ -976,6 +976,21 @@ describe('RMM routes', () => {
         update_driver_count:10000,pending_updates:Array(200).fill({title:'x'.repeat(1000),
           kb_ids:Array(32).fill('1'),categories:Array(32).fill('category'),category_ids:Array(32).fill('id')})})).status).toBe(200);
     });
+    test('disk manufacturer is validated, stored in JSONB and preserved when physical disks are omitted', async () => {
+      for (const body of [{physical_disks:[{model:'Disk',manufacturer:'Disk Maker'}]}, {physical_disks:[{manufacturer:null}]}, {}]) {
+        pool.query.mockReset(); authenticate(); pool.query.mockResolvedValueOnce({rows:[{id:10}]});
+        expect((await checkin({hostname:'HW',...body})).status).toBe(200);
+        const [sql,params]=pool.query.mock.calls[1];
+        const match=sql.match(/physical_disks = \$([0-9]+)/);
+        if (body.physical_disks) expect(JSON.parse(params[Number(match[1])-1])[0].manufacturer).toBe(body.physical_disks[0].manufacturer);
+        else expect(match).toBeNull();
+      }
+    });
+    test.each(['x'.repeat(201),{},42])('rejects malformed disk manufacturer %j', async manufacturer => {
+      authenticate();
+      expect((await checkin({hostname:'HW',physical_disks:[{manufacturer}]})).status).toBe(400);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
     test('stores CPU, RAM modules, BIOS, UUID, OS boot and disk inventory', async () => {
       authenticate();
       pool.query.mockResolvedValueOnce({ rows: [{ id: 10, status: 'online' }] });

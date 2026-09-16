@@ -254,6 +254,7 @@ function Get-MBSInventory {
             $inventory.physical_disks = @($disks | Select-Object -First 64 | ForEach-Object {
                 @{
                     model = Convert-MBSText $_.Model
+                    manufacturer = Convert-MBSSoftwareText $_.Manufacturer 200
                     serial_number = Convert-MBSText $_.SerialNumber
                     capacity_bytes = Convert-MBSPositiveNumber $_.Size
                     media_type = Convert-MBSText $_.MediaType

@@ -141,6 +141,10 @@ function validateInventory(body) {
     hardware[field] = values.map(value => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Invalid inventory item: ${field}`);
       const item = {};
+      if (field === 'physical_disks' && Object.prototype.hasOwnProperty.call(value, 'manufacturer')) {
+        if (value.manufacturer !== null && !text(200)(value.manufacturer)) throw new Error('Invalid inventory field: physical_disks.manufacturer');
+        item.manufacturer = value.manufacturer;
+      }
       for (const [key, valid] of Object.entries(schema)) {
         if (value[key] != null && !valid(value[key])) throw new Error(`Invalid inventory field: ${field}.${key}`);
         item[key] = value[key] ?? null;

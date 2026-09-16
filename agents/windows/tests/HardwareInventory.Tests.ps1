@@ -22,7 +22,7 @@ function Get-CimInstance {
         'Win32_PhysicalMemory' { [pscustomobject]@{ Capacity=[long]17179869184; Manufacturer='Test'; PartNumber='PN'; Speed=5600; ConfiguredClockSpeed=5600; BankLabel='BANK 0'; DeviceLocator='DIMM 0' } }
         'Win32_DiskDrive' {
             if ($script:failDisk) { throw 'Simulated unavailable disk category' }
-            [pscustomobject]@{ Model='Test disk'; SerialNumber='TEST-DISK'; Size=[long]512000000000; MediaType='Fixed hard disk media'; InterfaceType='SCSI' }
+            [pscustomobject]@{ Model='Test disk'; Manufacturer=$script:diskManufacturer; SerialNumber='TEST-DISK'; Size=[long]512000000000; MediaType='Fixed hard disk media'; InterfaceType='SCSI' }
         }
     }
 }
@@ -36,6 +36,7 @@ function Assert-Equal($actual, $expected, $label) {
 $sample = @{ cpu_name = $null }
 $sample.cpu_name = 'CPU'
 Assert-Equal $sample['cpu_name'] 'CPU' 'hashtable dot assignment'
+$script:diskManufacturer=' Disk Maker '
 $inventory = Get-MBSInventory
 Send-MBSCheckIn -Config ([pscustomobject]@{server_url='https://invalid.example';agent_id='test';token='test-only'}) -Inventory $inventory
 Assert-Equal $wire.cpu_manufacturer 'GenuineIntel' 'serialized CPU manufacturer'
@@ -48,8 +49,12 @@ Assert-Equal $wire.bios_version '1.2' 'serialized BIOS'
 Assert-Equal $wire.os_build '26100' 'serialized OS build'
 Assert-Equal $wire.system_uuid '12345678-1234-1234-1234-123456789abc' 'serialized UUID'
 Assert-Equal $wire.memory_modules[0].capacity_bytes 17179869184 'serialized DIMM'
+Assert-Equal $wire.physical_disks[0].manufacturer 'Disk Maker' 'disk manufacturer from existing CIM query'
 Assert-Equal $wire.physical_disks[0].capacity_bytes 512000000000 'serialized disk'
 if (!$wire.last_boot_at -or !$wire.bios_release_date -or $wire.uptime_seconds -le 0) { throw 'Missing serialized date/uptime' }
+$script:diskManufacturer='x'*201
+$boundedInventory=Get-MBSInventory
+Assert-Equal $boundedInventory.physical_disks[0].manufacturer.Length 200 'bounded disk manufacturer'
 $script:failDisk = $true
 $inventory = Get-MBSInventory
 Assert-Equal $inventory.cpu_name 'Intel(R) Core(TM) Ultra 5 125U' 'CPU survives disk failure'
