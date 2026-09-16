@@ -1127,3 +1127,19 @@ describe('RMM routes', () => {
   });
 
 });
+
+describe('dashboard fleet projection',()=>{
+ beforeEach(()=>jest.clearAllMocks());
+ test('admin fleet includes minimal job state and never returns agent token hash',async()=>{
+  jwt.verify.mockReturnValue({id:1,role:'admin'});
+  pool.query.mockResolvedValueOnce({rows:[{id:1,hostname:'LT226',agent_token_hash:'private-test-hash',alert_jobs:[{id:3,status:'failed'}]}]});
+  const response=await request(app).get('/api/rmm/devices').set('Authorization','Bearer valid-token');
+  expect(response.status).toBe(200);expect(response.body[0].alert_jobs).toEqual([{id:3,status:'failed'}]);expect(response.body[0]).not.toHaveProperty('agent_token_hash');
+  const sql=pool.query.mock.calls[0][0];expect(sql).toContain("INTERVAL '24 hours'");expect(sql).toContain("j.status IN ('claimed', 'started')");expect(sql).not.toContain('result_output');expect(sql).not.toContain('result_error');
+ });
+ test('non-admin cannot read fleet job projection',async()=>{
+  jwt.verify.mockReturnValue({id:2,role:'user'});
+  const response=await request(app).get('/api/rmm/devices').set('Authorization','Bearer valid-token');
+  expect(response.status).toBe(403);expect(pool.query).not.toHaveBeenCalled();
+ });
+});

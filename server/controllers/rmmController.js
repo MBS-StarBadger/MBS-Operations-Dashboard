@@ -30,7 +30,7 @@ async function getRmmStatus(req, res) {
 
 async function listDevices(req, res) {
   const devices = await rmmRepository.findAll();
-  res.json(devices);
+  res.json(devices.map(({ agent_token_hash, ...device }) => device));
 }
 
 async function getDevice(req, res) {

@@ -12,7 +12,7 @@ const plugin=({types:t})=>({visitor:{JSXElement:{exit(p){
  p.replaceWith(t.callExpression(t.identifier('element'),[kind,t.objectExpression(attrs),...children]));
 }},JSXFragment:{exit(p){p.replaceWith(t.arrayExpression(p.node.children.filter(c=>c.type!=='JSXText'||c.value.trim()).map(c=>c.type==='JSXExpressionContainer'?c.expression:c.type==='JSXText'?t.stringLiteral(c.value):c)));}}}});
 const ast=babel.parseSync(html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)[1],{parserOpts:{plugins:['jsx']},configFile:false,babelrc:false});
-const names=['RMMChip','RMMHardwareInventory','RMMEndpointSummary','RMMHealthMeter','RMMDeviceHealth','rmmUpdateState','rmmSoftwareState','RMMWindowsUpdates','RMMSoftwareInventory','filterRmmSoftware','rmmScanFeedback'];
+const names=['RMMActiveAlerts','RMMChip','RMMHardwareInventory','RMMEndpointSummary','RMMHealthMeter','RMMDeviceHealth','rmmUpdateState','rmmSoftwareState','RMMWindowsUpdates','RMMSoftwareInventory','filterRmmSoftware','rmmScanFeedback'];
 const componentSource=ast.program.body.filter(node=>node.type==='FunctionDeclaration'&&names.includes(node.id.name)).map(node=>html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)[1].slice(node.start,node.end)).join('\n');
 const code=babel.transformSync(componentSource,{plugins:[plugin],parserOpts:{plugins:['jsx']},configFile:false,babelrc:false}).code;
 function render(name,props,mode='dark'){
@@ -104,4 +104,23 @@ test('DIMM raw ID stays inspectable and part/model strings never supply manufact
  expect(text(cards[4])).not.toContain('SK hynix');
  expect(text(cards[5]).match(/Samsung/g)).toHaveLength(1);
  expect(text(tree)).not.toContain('Unknown · Unknown');
+});
+
+test('dashboard alert action reuses endpoint navigation and displays identity/severity',()=>{
+ const onOpen=jest.fn(),device={id:226,hostname:'LT226'};
+ const tree=render('RMMActiveAlerts',{devices:[device],onOpen,alerts:[{id:'226:disk',deviceId:226,hostname:'LT226',assetTag:'MBS-226',severity:'critical',title:'Storage Critical',detail:'C: 93% used',at:Date.now()}]});
+ for(const value of ['critical','LT226','MBS-226','Storage Critical','C: 93% used','View Endpoint'])expect(text(tree)).toContain(value);
+ nodes(tree,'button')[0].props.onClick();expect(onOpen).toHaveBeenCalledWith(device);
+});
+
+test('fleet refresh uses existing timer, prevents overlap and ignores responses after unmount',async()=>{
+ const tab=ast.program.body.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='RMMTab');
+ const effect=tab.body.body.find(n=>n.type==='ExpressionStatement'&&n.expression.callee?.name==='useEffect').expression.arguments[0];
+ const source=html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)[1].slice(effect.start,effect.end);
+ let tick,resolve;const setDevices=jest.fn(),setFleetRefreshError=jest.fn(),clearInterval=jest.fn();
+ const get=jest.fn(()=>new Promise(r=>{resolve=r;}));
+ const cleanup=vm.runInNewContext(`(${source})()`,{window:{api:{get}},setHealthNow:jest.fn(),setDevices,setFleetRefreshError,clearInterval,setInterval:(fn,ms)=>{expect(ms).toBe(30000);tick=fn;return 9;}});
+ const first=tick();await tick();expect(get).toHaveBeenCalledTimes(1);resolve([{id:1}]);await first;expect(setDevices).toHaveBeenCalledWith([{id:1}]);
+ get.mockRejectedValueOnce(new Error('network'));await tick();expect(setFleetRefreshError).toHaveBeenLastCalledWith('Fleet refresh failed; showing last loaded data.');
+ const pending=tick();cleanup();resolve([{id:2}]);await pending;expect(setDevices).toHaveBeenCalledTimes(1);expect(clearInterval).toHaveBeenCalledWith(9);
 });

@@ -10,6 +10,7 @@
   <script src="/jsqr.min.js"></script>
   <script src="/rmmHealth.js"></script>
   <script src="/rmmUI.js"></script>
+<script src="/rmmAlerts.js"></script>
   <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }
 .rmm-panel{border-radius:10px;padding:16px;min-width:0}
 .rmm-panel h3{font-size:14px;margin:0 0 10px}
@@ -2458,6 +2459,20 @@ function RMMAssetVerification({ correlation, onViewAsset }) {
   </section>;
 }
 
+function RMMActiveAlerts({ alerts, onOpen, devices }) {
+  return <section className="rmm-panel" style={{ background:T.surface,color:T.slate,marginBottom:20 }}>
+    <h3>Active Alerts</h3>
+    {!alerts.length&&<p style={{ color:T.muted }}>No active alerts match this view.</p>}
+    <div className="rmm-grid">{alerts.map(a=><article key={a.id} style={{ border:`1px solid ${T.border}`,borderRadius:8,padding:12 }}>
+      <RMMChip critical={a.severity==='critical'} warning={a.severity==='attention'}>{a.severity}</RMMChip>
+      <strong> {a.hostname}</strong>{a.assetTag&&<div>Asset {a.assetTag}</div>}
+      <h4>{a.title}</h4><p>{a.detail}</p>
+      {a.at!=null&&<p style={{ color:T.muted,fontSize:11 }}>{RMMUI.timestamp(new Date(a.at).toISOString())}</p>}
+      <button type="button" onClick={()=>onOpen(devices.find(d=>String(d.id)===String(a.deviceId)))}>View Endpoint</button>
+    </article>)}</div>
+  </section>;
+}
+
 function RMMTab({ onViewAsset }) {
   const [summary,setSummary] = useState(null);
   const [devices,setDevices] = useState([]);
@@ -2467,10 +2482,23 @@ function RMMTab({ onViewAsset }) {
   const [error,setError] = useState("");
   const [selectedDevice,setSelectedDevice] = useState(null);
   const [deviceJobs,setDeviceJobs] = useState(null);
+  const [alertFilter,setAlertFilter] = useState("all");
+  const [alertSearch,setAlertSearch] = useState("");
+  const [fleetRefreshError,setFleetRefreshError] = useState("");
   const [healthNow,setHealthNow] = useState(Date.now);
   useEffect(()=>{
-    const timer=setInterval(()=>setHealthNow(Date.now()),30000);
-    return ()=>clearInterval(timer);
+    let cancelled=false,busy=false;
+    const timer=setInterval(async()=>{
+      setHealthNow(Date.now());
+      if(busy)return;
+      busy=true;
+      try {
+        const next=await window.api.get('/api/rmm/devices');
+        if(!cancelled){setDevices(next);setFleetRefreshError('');}
+      } catch(err){if(!cancelled)setFleetRefreshError('Fleet refresh failed; showing last loaded data.');}
+      finally {busy=false;}
+    },30000);
+    return ()=>{cancelled=true;clearInterval(timer);};
   },[]);
   const [deviceLoading,setDeviceLoading] = useState(false);
   const [deviceError,setDeviceError] = useState("");
@@ -2558,12 +2586,9 @@ function RMMTab({ onViewAsset }) {
     never:{ color:T.muted,background:T.surfaceAlt,borderColor:T.border },
   };
 
-  const stats = summary?.devices || {
-    total:0,
-    online:0,
-    offline:0,
-    alerts:0,
-  };
+  const alertData=RMMAlerts.derive(devices,healthNow);
+  const filtered=RMMAlerts.filter(alertData,devices,alertFilter,alertSearch);
+  const stats={total:devices.length,online:devices.filter(d=>d.status==='online').length,offline:devices.filter(d=>d.status==='offline').length,alerts:alertData.total};
 
   return (
     <div style={{
@@ -2679,6 +2704,16 @@ function RMMTab({ onViewAsset }) {
           </div>
         ))}
       </div>
+
+      {!selectedDevice&&<>
+      <p style={{ color:T.muted }}>Critical {alertData.counts.critical} · Attention {alertData.counts.attention} · Info {alertData.counts.info}</p>
+      {fleetRefreshError&&<p role="alert" style={{ color:T.warningText }}>{fleetRefreshError}</p>}
+      <div style={{ display:'flex',flexWrap:'wrap',gap:8,marginBottom:14 }}>
+        <label>Search endpoints <input value={alertSearch} onChange={e=>setAlertSearch(e.target.value)} placeholder="Hostname or asset tag" /></label>
+        <label>Filter <select value={alertFilter} onChange={e=>setAlertFilter(e.target.value)}>{['all','critical','attention','info','offline','updates','hardware','stale'].map(value=><option key={value} value={value}>{value[0].toUpperCase()+value.slice(1)}</option>)}</select></label>
+      </div>
+      <RMMActiveAlerts alerts={filtered.alerts} devices={devices} onOpen={openDevice} />
+      </>}
 
       {/* RMM Internal Navigation */}
       <div style={{
@@ -2920,6 +2955,7 @@ function RMMTab({ onViewAsset }) {
                     {[
                       "Hostname",
                       "Status",
+                      "Alerts / Health",
                       "Asset",
                       "OS",
                       "User",
@@ -2942,7 +2978,8 @@ function RMMTab({ onViewAsset }) {
                 </thead>
 
                 <tbody>
-                  {devices.map((device,index)=>{
+                  {!filtered.devices.length&&<tr><td colSpan={8} style={{ padding:20,color:T.muted }}>No endpoints match this view.</td></tr>}
+                  {filtered.devices.map((device,index)=>{
                     const online = device.status === "online";
 
                     return (
@@ -2974,9 +3011,7 @@ function RMMTab({ onViewAsset }) {
                           >
                             {device.hostname}
                           </button>
-                          <div style={{ color:T.muted,fontSize:10,marginTop:4,maxWidth:240 }}>{rmmUpdateState(device)}</div>
-                          <div style={{ color:T.muted,fontSize:10,marginTop:3,maxWidth:240 }}>{rmmSoftwareState(device)}</div>
-                          <RMMFleetHealth device={device} now={healthNow} />
+
                         </td>
 
                         <td style={{ padding:"11px 14px" }}>
@@ -3002,6 +3037,10 @@ function RMMTab({ onViewAsset }) {
                           </span>
                         </td>
 
+                        <td style={{ padding:'11px 14px',fontSize:12,maxWidth:240 }}>
+                          <RMMChip critical={alertData.byDevice[device.id]?.highestSeverity==='critical'} warning={alertData.byDevice[device.id]?.highestSeverity==='attention'}>{alertData.byDevice[device.id]?.highestSeverity||'Healthy'}</RMMChip>
+                          {alertData.byDevice[device.id]?.alerts.slice(0,2).map(a=><div key={a.id}>{a.compact}</div>)}
+                        </td>
                         <td style={{
                           padding:"11px 14px",
                           fontSize:12,

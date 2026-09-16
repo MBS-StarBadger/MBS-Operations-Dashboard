@@ -12,7 +12,13 @@ async function findAll() {
       a.asset_tag,
       a.type AS asset_type,
       a.name AS asset_name,
-      a.assigned_to
+      a.assigned_to,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'id', j.id, 'job_type', j.job_type, 'status', j.status,
+        'claimed_at', j.claimed_at, 'started_at', j.started_at, 'completed_at', j.completed_at))
+        FROM rmm_jobs j WHERE j.device_id = d.id
+          AND (j.status IN ('claimed', 'started')
+            OR (j.status = 'failed' AND j.completed_at >= NOW() - INTERVAL '24 hours'))), '[]'::jsonb) AS alert_jobs
     FROM rmm_devices d
     LEFT JOIN assets a ON d.asset_id = a.id AND a.type IN ('Desktop', 'Laptop', 'Server')
     ORDER BY d.hostname ASC
