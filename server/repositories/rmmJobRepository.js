@@ -69,6 +69,8 @@ async function createForDevice(deviceId, jobType, createdBy) {
   const result = await pool.query(
     `INSERT INTO rmm_jobs (device_id, job_type, status, created_by)
      VALUES ($1, $2, 'queued', $3)
+     ON CONFLICT (device_id) WHERE job_type = 'windows_update_scan'
+       AND status IN ('queued', 'claimed', 'started') DO NOTHING
      RETURNING *`,
     [deviceId, jobType, createdBy]
   );

@@ -16,9 +16,46 @@ const hardwareFields = {
 const legacyFields = { hostname: text(100), os_name: text(100), os_version: text(100),
   architecture: text(50), serial_number: text(100), manufacturer: text(100), model: text(100),
   ip_address: text(64), logged_in_user: text(100), agent_version: text(50) };
+const boolean = value => typeof value === 'boolean';
+const strings = (limit, max) => value => Array.isArray(value) && value.length <= limit && value.every(text(max));
+const updateFields = {
+  update_attempted_at: date, update_refreshed_at: date,
+  update_scan_status: value => ['success', 'failed', 'unavailable'].includes(value),
+  update_pending_count: integer(10000), update_security_count: integer(10000),
+  update_driver_count: integer(10000), update_reboot_required: boolean,
+};
+const updateItemFields = { title: text(1000), update_id: text(100), revision: integer(2147483647),
+  kb_ids: strings(32, 32), categories: strings(32, 200), category_ids: strings(32, 100),
+  severity: text(100), downloaded: boolean, installed: boolean, reboot_may_be_required: boolean };
+function validateUpdates(body) {
+  const result = {};
+  for (const [field, valid] of Object.entries(updateFields)) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+    if (body[field] !== null && !valid(body[field])) throw new Error(`Invalid inventory field: ${field}`);
+    result[field] = body[field];
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'pending_updates')) {
+    const rows = body.pending_updates;
+    if (rows !== null && (!Array.isArray(rows) || rows.length > 200)) throw new Error('Invalid pending_updates (maximum 200)');
+    result.pending_updates = rows === null ? null : rows.map(row => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('Invalid pending update');
+      const item = {};
+      for (const key of Object.keys(row)) {
+        if (!Object.prototype.hasOwnProperty.call(updateItemFields, key) || (row[key] !== null && !updateItemFields[key](row[key]))) throw new Error(`Invalid pending update field: ${key}`);
+        item[key] = row[key];
+      }
+      return item;
+    });
+    if (rows && body.update_pending_count != null && rows.length > body.update_pending_count) throw new Error('Pending details exceed count');
+  }
+  for (const field of ['update_security_count', 'update_driver_count']) {
+    if (body[field] != null && body.update_pending_count != null && body[field] > body.update_pending_count) throw new Error('Classification count exceeds total');
+  }
+  return result;
+}
 function validateInventory(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Inventory must be an object');
-  const hardware = {};
+  const hardware = validateUpdates(body);
   for (const [field, valid] of Object.entries({ ...legacyFields, ...hardwareFields })) {
     const value = body[field];
     if (value != null && !valid(value)) throw new Error(`Invalid inventory field: ${field}`);

@@ -2092,7 +2092,7 @@ function TrucksTab() {
 
 
 
-function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
+function RMMDeviceJobs({ deviceId, onDeviceRefresh, onJobsRefresh }) {
   const [jobs,setJobs] = useState([]);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
@@ -2119,6 +2119,7 @@ function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
         if (!cancelled) {
           onDeviceRefresh(device);
           setJobs(data.jobs);
+          onJobsRefresh({deviceId,jobs:data.jobs});
           setError("");
         }
       } catch (err) {
@@ -2132,7 +2133,7 @@ function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
     }
     refresh();
     return ()=>{ cancelled = true; clearTimeout(timer); };
-  },[deviceId,onDeviceRefresh,revision]);
+  },[deviceId,onDeviceRefresh,onJobsRefresh,revision]);
 
   async function refreshInventory() {
     if (pending.current) return;
@@ -2201,6 +2202,81 @@ function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
       </section>
     </div>
   );
+}
+
+function rmmUpdateState(d) {
+  const refreshed = Date.parse(d.update_refreshed_at);
+  const stale = Number.isFinite(refreshed) && Date.now() - refreshed > 8*24*60*60*1000;
+  const failed = ['failed','unavailable'].includes(d.update_scan_status);
+  const known = Number.isFinite(refreshed) && d.update_pending_count != null;
+  const parts = [failed ? 'Update scan failed / unavailable' : null,
+    stale ? 'Update data stale' : null,
+    d.update_reboot_required === true ? 'Reboot required' : null,
+    known ? (d.update_pending_count === 0 ? 'No applicable updates' : `${d.update_pending_count} updates pending`) : 'Update status unknown'];
+  return parts.filter(Boolean).join(' · ');
+}
+
+function rmmScanFeedback(feedback, jobs) {
+  if (feedback?.jobId == null) return feedback;
+  const job = jobs.find(job => String(job.id) === String(feedback.jobId) && job.job_type === 'windows_update_scan');
+  if (!job || feedback.status === 'completed' || feedback.status === 'failed') return feedback;
+  if (job.status === 'claimed' || job.status === 'started') {
+    return {...feedback,status:job.status,success:true,text:`Windows Update scan in progress (job #${job.id}).`};
+  }
+  if (job.status === 'completed') {
+    return {...feedback,status:job.status,success:true,text:'Windows Update scan completed successfully.'};
+  }
+  if (job.status === 'failed') {
+    const detail = job.result_error || job.result_output || (job.result_code != null ? `Result code: ${job.result_code}` : 'No further details were reported.');
+    return {...feedback,status:job.status,success:false,text:`Windows Update scan failed. ${detail}`};
+  }
+  return feedback;
+}
+
+function RMMWindowsUpdates({ device: d, jobSnapshot }) {
+  const [submitting,setSubmitting] = useState(false);
+  const [feedback,setFeedback] = useState(null);
+  const pending = useRef(false);
+  useEffect(()=>{
+    if (jobSnapshot?.deviceId === d.id) {
+      setFeedback(current=>rmmScanFeedback(current,jobSnapshot.jobs));
+    }
+  },[jobSnapshot,d.id,feedback?.jobId]);
+  async function scanUpdates() {
+    if (pending.current) return;
+    pending.current = true; setSubmitting(true); setFeedback(null);
+    try {
+      const data = await window.api.post(`/api/rmm/devices/${d.id}/jobs`, {job_type:'windows_update_scan'});
+      setFeedback({jobId:data.job.id,status:'queued',success:true,text:`Windows Update scan queued (job #${data.job.id}). Waiting for the agent.`});
+    } catch (error) {
+      setFeedback({success:false,text:error.message || 'Unable to queue Windows Update scan'});
+    } finally { pending.current = false; setSubmitting(false); }
+  }
+  const date = value => value ? new Date(value).toLocaleString() : 'Unknown';
+  const bool = value => value == null ? 'Unknown' : value ? 'Yes' : 'No';
+  const rows = d.pending_updates;
+  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+    <h3>Windows Update</h3>
+    <button type="button" disabled={submitting} onClick={scanUpdates} style={{ background:T.surfaceAlt,color:T.slate,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 13px',cursor:submitting?'wait':'pointer' }}>{submitting?'Queuing…':'Scan for Updates'}</button>
+    {feedback&&<p role={feedback.success?'status':'alert'} style={{ color:feedback.success?T.success:T.danger }}>{feedback.text}</p>}
+    <p role="status">{rmmUpdateState(d)}</p>
+    <p style={{ color:T.muted,fontSize:12 }}>Scans are scheduled weekly. Scan for Updates requests a scan now. Data older than 8 days is stale. Refresh Inventory and normal check-ins do not scan for updates.</p>
+    <dl style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12 }}>
+      {[["Last successful scan",date(d.update_refreshed_at)],["Last scan attempt",date(d.update_attempted_at)],
+        ["Latest scan result",d.update_scan_status??'Unknown'],["Pending updates",d.update_pending_count??'Unknown'],
+        ["Security updates",d.update_security_count??'Unknown'],["Driver updates",d.update_driver_count??'Unknown'],
+        ["Reboot required (at successful scan)",bool(d.update_reboot_required)]].map(([label,value])=><div key={label}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,fontSize:12 }}>{value}</dd></div>)}
+    </dl>
+    {rows?.length>0 ? <>
+      <p style={{ color:T.muted,fontSize:12 }}>Showing {rows.length} of {d.update_pending_count??'unknown'} pending updates (up to 200 details).</p>
+      <div style={{ overflowX:'auto',maxHeight:400 }}><table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
+        <thead><tr>{['Update / identity','KB','Categories','Severity','Downloaded','Installed','May require reboot'].map(label=><th key={label} style={{ textAlign:'left',padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
+        <tbody>{rows.map((u,i)=><tr key={`${u.update_id}-${u.revision}-${i}`}>
+          {[<>{u.title||'Untitled update'}<div style={{ color:T.muted,fontSize:10 }}>{u.update_id}{u.revision!=null?` · revision ${u.revision}`:''}</div></>,u.kb_ids?.join(', ')||'—',u.categories?.join(', ')||'Unknown',u.severity||'Unknown',bool(u.downloaded),bool(u.installed),bool(u.reboot_may_be_required)].map((value,j)=><td key={j} style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:320,overflowWrap:'anywhere' }}>{value}</td>)}
+        </tr>)}</tbody>
+      </table></div>
+    </> : <p style={{ color:T.muted }}>{d.update_pending_count===0?'Zero pending updates in the last successful snapshot.':'Pending update details not reported.'}</p>}
+  </section>;
 }
 
 function RMMHardwareInventory({ device: d }) {
@@ -2276,6 +2352,7 @@ function RMMTab({ onViewAsset }) {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
   const [selectedDevice,setSelectedDevice] = useState(null);
+  const [deviceJobs,setDeviceJobs] = useState(null);
   const [deviceLoading,setDeviceLoading] = useState(false);
   const [deviceError,setDeviceError] = useState("");
 
@@ -2675,8 +2752,9 @@ function RMMTab({ onViewAsset }) {
                   </section>
                 ))}
                 <RMMHardwareInventory device={selectedDevice} />
+                <RMMWindowsUpdates key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />
                 <RMMAssetVerification correlation={selectedDevice.correlation} onViewAsset={onViewAsset} />
-                <RMMDeviceJobs key={selectedDevice.id} deviceId={selectedDevice.id} onDeviceRefresh={setSelectedDevice} />
+                <RMMDeviceJobs key={selectedDevice.id} deviceId={selectedDevice.id} onDeviceRefresh={setSelectedDevice} onJobsRefresh={setDeviceJobs} />
               </div>
             ) : null}
           </div>
@@ -2819,6 +2897,7 @@ function RMMTab({ onViewAsset }) {
                           >
                             {device.hostname}
                           </button>
+                          <div style={{ color:T.muted,fontSize:10,marginTop:4,maxWidth:240 }}>{rmmUpdateState(device)}</div>
                         </td>
 
                         <td style={{ padding:"11px 14px" }}>

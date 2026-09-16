@@ -21,6 +21,8 @@ const rmmRouter = require('./routes/rmm');
 const app = express();
 
 app.use(cors());
+// Bounded update metadata can exceed the default 100 KiB body limit.
+app.use('/api/rmm/agent/checkin', express.json({ limit: '4mb' }));
 app.use(express.json());
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/assets', assetsRouter);
@@ -154,7 +156,15 @@ async function initDB() {
         ADD COLUMN IF NOT EXISTS os_build VARCHAR(100),
         ADD COLUMN IF NOT EXISTS last_boot_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS uptime_seconds BIGINT,
-        ADD COLUMN IF NOT EXISTS physical_disks JSONB;
+        ADD COLUMN IF NOT EXISTS physical_disks JSONB,
+        ADD COLUMN IF NOT EXISTS update_attempted_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS update_refreshed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS update_scan_status VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS update_pending_count INTEGER,
+        ADD COLUMN IF NOT EXISTS update_security_count INTEGER,
+        ADD COLUMN IF NOT EXISTS update_driver_count INTEGER,
+        ADD COLUMN IF NOT EXISTS update_reboot_required BOOLEAN,
+        ADD COLUMN IF NOT EXISTS pending_updates JSONB;
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,
@@ -187,6 +197,10 @@ async function initDB() {
 
       CREATE INDEX IF NOT EXISTS idx_rmm_jobs_device_status
         ON rmm_jobs(device_id, status);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rmm_jobs_active_update_scan
+        ON rmm_jobs(device_id)
+        WHERE job_type = 'windows_update_scan' AND status IN ('queued', 'claimed', 'started');
 
       CREATE INDEX IF NOT EXISTS idx_rmm_jobs_created_at
         ON rmm_jobs(created_at DESC);
@@ -326,6 +340,7 @@ app.use(express.static('public'));
 
 if (require.main === module) {
   initDB().then(() => {
+    require('./services/rmmUpdateScheduler').start();
     app.listen(process.env.PORT, () => {
       console.log(`MBS Backend running on port ${process.env.PORT}`);
     });

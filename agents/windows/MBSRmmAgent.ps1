@@ -182,6 +182,82 @@ function Get-MBSInventory {
     return $inventory
 }
 
+# WUA reads the endpoint's configured update source; no download/install objects are created.
+function Get-MBSUpdateRebootRequired {
+    try {
+        $required = (New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired
+        if ($null -eq $required) { return $null }
+        return [bool]$required
+    }
+    catch { return $null }
+}
+
+function Get-MBSWindowsUpdates {
+    $telemetry = @{
+        update_attempted_at = (Get-Date).ToUniversalTime().ToString('o')
+        update_scan_status = 'failed'
+    }
+    try {
+        $session = New-Object -ComObject Microsoft.Update.Session
+        $searcher = $session.CreateUpdateSearcher()
+        # Synchronous search runs only inside a windows_update_scan job.
+        $result = $searcher.Search('IsInstalled=0 and IsHidden=0')
+        # Do not publish incomplete results (SucceededWithErrors is not success).
+        if ([int]$result.ResultCode -ne 2) { return $telemetry }
+        if ($result.Updates.Count -gt 10000) { return $telemetry }
+        $details = @()
+        $security = 0
+        $drivers = 0
+        $securityKnown = $true
+        $driversKnown = $true
+        foreach ($update in $result.Updates) {
+            $categories = @(); $categoryIds = @(); $hasClassification = $false
+            try {
+                foreach ($category in $update.Categories) {
+                    if ($category.Type -eq 'UpdateClassification') { $hasClassification = $true }
+                    $categories += ([string]$category.Name).Substring(0, [Math]::Min(200, ([string]$category.Name).Length))
+                    $categoryIds += [string]$category.CategoryID
+                }
+                if (-not $hasClassification) { $securityKnown = $false }
+                # Stable Security Updates classification GUID, independent of display language.
+                if ($categoryIds -contains '0fa1201d-4330-4fa8-8ae9-b877473b6441') { $security++ }
+            } catch { $securityKnown = $false }
+            try {
+                if ($null -eq $update.Type -or [int]$update.Type -notin @(1, 2)) { $driversKnown = $false }
+                elseif ([int]$update.Type -eq 2) { $drivers++ }
+            } catch { $driversKnown = $false }
+            if ($details.Count -ge 200) { continue }
+            $item = @{
+                title = ([string]$update.Title).Substring(0, [Math]::Min(1000, ([string]$update.Title).Length))
+                update_id = [string]$update.Identity.UpdateID
+                revision = [int]$update.Identity.RevisionNumber
+                kb_ids = @($update.KBArticleIDs | Select-Object -First 32)
+                categories = @($categories | Select-Object -First 32)
+                category_ids = @($categoryIds | Select-Object -First 32)
+                severity = Convert-MBSText $update.MsrcSeverity
+                downloaded = [bool]$update.IsDownloaded
+                installed = [bool]$update.IsInstalled
+                reboot_may_be_required = $null
+            }
+            try { $item.reboot_may_be_required = ([int]$update.InstallationBehavior.RebootBehavior -ne 0) } catch { }
+            $details += $item
+        }
+        # Publish atomically only after complete enumeration; failures preserve the old snapshot.
+        $telemetry.update_refreshed_at = (Get-Date).ToUniversalTime().ToString('o')
+        $telemetry.update_pending_count = [int]$result.Updates.Count
+        $telemetry.update_security_count = if ($securityKnown) { $security } else { $null }
+        $telemetry.update_driver_count = if ($driversKnown) { $drivers } else { $null }
+        $telemetry.update_reboot_required = Get-MBSUpdateRebootRequired
+        $telemetry.pending_updates = @($details)
+        $telemetry.update_scan_status = 'success'
+    }
+    catch {
+        # Never serialize COM errors or discard prior successful inventory on collection failure.
+        return @{ update_attempted_at = $telemetry.update_attempted_at; update_scan_status = 'failed' }
+    }
+    return $telemetry
+}
+
 function Send-MBSCheckIn {
     param(
         [object]$Config,
@@ -261,7 +337,7 @@ function Invoke-MBSNextJob {
     if ($null -eq $poll.job) { return }
 
     $job = $poll.job
-    $allowedJobTypes = @("inventory_refresh")
+    $allowedJobTypes = @("inventory_refresh", "windows_update_scan")
     if ($allowedJobTypes -cnotcontains $job.job_type) {
         Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
             -ResultError "Unsupported job type; no action was executed"
@@ -273,6 +349,10 @@ function Invoke-MBSNextJob {
     $failureMessage = "Inventory collection failed"
     try {
         $inventory = Get-MBSInventory
+        if ($job.job_type -ceq 'windows_update_scan') {
+            $updates = Get-MBSWindowsUpdates
+            foreach ($key in $updates.Keys) { $inventory[$key] = $updates[$key] }
+        }
         $failureMessage = "Inventory refresh check-in failed"
         Send-MBSCheckIn -Config $Config -Inventory $inventory | Out-Null
     }
@@ -283,9 +363,15 @@ function Invoke-MBSNextJob {
         return
     }
 
+    if ($job.job_type -ceq 'windows_update_scan' -and $updates.update_scan_status -ne 'success') {
+        Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
+            -ResultError "Windows Update scan failed or unavailable; previous successful snapshot retained"
+        return
+    }
+    $output = if ($job.job_type -ceq 'windows_update_scan') { 'Windows Update scan completed successfully' } else { 'Hardware inventory refreshed successfully' }
     # A reporting failure must not turn successful execution into a failed job.
     Send-MBSJobResult -Config $Config -JobId $job.id -Status completed `
-        -ResultOutput "Inventory refresh completed successfully"
+        -ResultOutput $output
 }
 
 try {

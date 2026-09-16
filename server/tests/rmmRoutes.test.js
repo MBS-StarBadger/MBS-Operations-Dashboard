@@ -796,6 +796,33 @@ describe('RMM routes', () => {
       jwt.verify.mockReturnValue({ id: 1, username: 'admin-user', role: 'admin' });
     });
 
+    test('admin manually forces an update scan even with a recent snapshot, with audit', async () => {
+      const scan = {...job,job_type:'windows_update_scan'};
+      pool.query.mockResolvedValueOnce({rows:[{id:10,update_refreshed_at:new Date().toISOString()}]})
+        .mockResolvedValueOnce({rows:[scan]}).mockResolvedValueOnce({rows:[{id:1}]});
+      const response=await request(app).post(path).set('Authorization','Bearer valid-token')
+        .send({job_type:'windows_update_scan',payload:{command:'ignored'},device_id:999});
+      expect(response.status).toBe(201);
+      expect(response.body.job).toEqual(scan);
+      expect(pool.query.mock.calls[1][1]).toEqual([10,'windows_update_scan',1]);
+      expect(pool.query.mock.calls[1][0]).toContain("AND status IN ('queued', 'claimed', 'started') DO NOTHING");
+      expect(pool.query.mock.calls[2][1]).toContain('Queued windows_update_scan job 52');
+    });
+    test('manual scan returns conflict when unique active-job guard blocks creation', async () => {
+      pool.query.mockResolvedValueOnce({rows:[{id:10}]}).mockResolvedValueOnce({rows:[]});
+      const response=await request(app).post(path).set('Authorization','Bearer valid-token').send({job_type:'windows_update_scan'});
+      expect(response.status).toBe(409);
+      expect(pool.query).toHaveBeenCalledTimes(2);
+    });
+    test.each(['user','missing','scope'])('scan job preserves %s protection', async protection => {
+      if(protection==='user') jwt.verify.mockReturnValue({id:2,role:'user'});
+      if(protection==='scope') pool.query.mockResolvedValueOnce({rows:[{id:10,asset_id:9,asset_type:'Truck'}]});
+      const req=request(app).post(path);
+      if(protection!=='missing') req.set('Authorization','Bearer valid-token');
+      const response=await req.send({job_type:'windows_update_scan'});
+      expect(response.status).toBe(protection==='user'?403:protection==='missing'?401:400);
+      expect(pool.query).toHaveBeenCalledTimes(protection==='scope'?1:0);
+    });
     test('admin creates a queued inventory job using URL device and authenticated user, and writes audit', async () => {
       pool.query.mockResolvedValueOnce({ rows: [{ id: 10 }] })
         .mockResolvedValueOnce({ rows: [job] })
@@ -907,6 +934,48 @@ describe('RMM routes', () => {
       return request(app).post('/api/rmm/agent/checkin').set('x-rmm-agent-id','hw-agent')
         .set('x-rmm-agent-token',token).send(body);
     }
+    test('stores update snapshot and JSON with hardware, then preserves omitted update fields', async () => {
+      const body = { hostname:'HW', cpu_name:'CPU', update_attempted_at:'2026-09-16T12:00:00Z',
+        update_refreshed_at:'2026-09-16T12:00:00Z', update_scan_status:'success', update_pending_count:1,
+        update_security_count:1, update_driver_count:0, update_reboot_required:true,
+        pending_updates:[{title:'Security update',update_id:'stable-id',revision:2,kb_ids:['123'],categories:['Security Updates'],category_ids:['guid'],severity:'Critical',downloaded:false,installed:false,reboot_may_be_required:true}] };
+      for (const payload of [body, {hostname:'HW'}, {hostname:'HW',update_scan_status:'failed',update_attempted_at:'2026-09-16T13:00:00Z'},
+        {hostname:'HW',update_pending_count:0,update_security_count:0,update_driver_count:0,update_reboot_required:false,pending_updates:[]},
+        {hostname:'HW',update_pending_count:null,update_reboot_required:null,pending_updates:null}]) {
+        pool.query.mockReset(); authenticate();
+        pool.query.mockResolvedValueOnce({rows:[{id:10,status:'online'}]});
+        expect((await checkin(payload)).status).toBe(200);
+        const [sql,params] = pool.query.mock.calls[1];
+        for (const field of Object.keys(body).filter(key=>key.startsWith('update_')||key==='pending_updates')) {
+          const match = sql.match(new RegExp(field+' = \\$([0-9]+)'));
+          if (!(field in payload)) expect(match).toBeNull();
+          else expect(params[Number(match[1])-1]).toEqual(Array.isArray(payload[field])?JSON.stringify(payload[field]):payload[field]);
+        }
+        expect(require('../repositories/rmmCorrelationRepository').correlateDevice).toHaveBeenCalledWith(10,{autoLink:true});
+      }
+    });
+    test.each([
+      {update_pending_count:-1},{update_pending_count:10001},{update_pending_count:'0'},
+      {update_security_count:1.5},{update_driver_count:10001},{update_reboot_required:0},
+      {update_reboot_required:'false'},{update_refreshed_at:'yesterday'},{update_scan_status:'ok'},
+      {pending_updates:{}},{pending_updates:[null]},{pending_updates:Array(201).fill({})},
+      {pending_updates:[{title:'x'.repeat(1001)}]},{pending_updates:[{downloaded:'false'}]},
+      {pending_updates:[{kb_ids:Array(33).fill('1')}]},{pending_updates:[{kb_ids:['x'.repeat(33)]}]},
+      {pending_updates:[{categories:['x'.repeat(201)]}]},{pending_updates:[{category_ids:Array(33).fill('id')}]},
+      {pending_updates:[{severity:'x'.repeat(101)}]},{pending_updates:[{update_id:'x'.repeat(101)}]},
+      {pending_updates:[{revision:-1}]},{pending_updates:[{command:'anything'}]},
+      {update_pending_count:0,pending_updates:[{}]},{update_pending_count:0,update_security_count:1},
+    ])('rejects malformed update telemetry %j', async payload => {
+      authenticate();
+      expect((await checkin({hostname:'HW',...payload})).status).toBe(400);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+    test('accepts bounded metadata above default JSON body size', async () => {
+      authenticate(); pool.query.mockResolvedValueOnce({rows:[{id:10}]});
+      expect((await checkin({hostname:'HW', update_pending_count:10000,update_security_count:10000,
+        update_driver_count:10000,pending_updates:Array(200).fill({title:'x'.repeat(1000),
+          kb_ids:Array(32).fill('1'),categories:Array(32).fill('category'),category_ids:Array(32).fill('id')})})).status).toBe(200);
+    });
     test('stores CPU, RAM modules, BIOS, UUID, OS boot and disk inventory', async () => {
       authenticate();
       pool.query.mockResolvedValueOnce({ rows: [{ id: 10, status: 'online' }] });

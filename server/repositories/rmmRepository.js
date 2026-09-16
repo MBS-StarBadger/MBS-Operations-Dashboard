@@ -70,6 +70,14 @@ async function findById(id) {
       d.last_boot_at,
       d.uptime_seconds,
       d.physical_disks,
+      d.update_attempted_at,
+      d.update_refreshed_at,
+      d.update_scan_status,
+      d.update_pending_count,
+      d.update_security_count,
+      d.update_driver_count,
+      d.update_reboot_required,
+      d.pending_updates,
       d.manufacturer,
       d.model,
       d.ip_address,
@@ -169,12 +177,13 @@ async function checkIn({
     'logical_processor_count', 'total_memory_bytes', 'memory_modules',
     'bios_manufacturer', 'bios_version', 'bios_release_date', 'system_uuid',
     'os_build', 'last_boot_at', 'uptime_seconds', 'physical_disks',
+    'update_attempted_at', 'update_refreshed_at', 'update_scan_status', 'update_pending_count', 'update_security_count', 'update_driver_count', 'update_reboot_required', 'pending_updates',
   ];
   const hardwareUpdates = [];
   // Only supplied fields enter SET; identifiers come from this fixed allowlist.
   for (const field of hardwareColumns) {
     if (!Object.prototype.hasOwnProperty.call(hardware, field)) continue;
-    const jsonb = field === 'memory_modules' || field === 'physical_disks';
+    const jsonb = field === 'memory_modules' || field === 'physical_disks' || field === 'pending_updates';
     const value = hardware[field];
     params.push(jsonb && value != null ? JSON.stringify(value) : value ?? null);
     hardwareUpdates.push(`${field} = $${params.length}${jsonb ? '::jsonb' : ''},`);
