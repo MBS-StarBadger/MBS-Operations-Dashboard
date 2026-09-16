@@ -169,7 +169,16 @@ async function initDB() {
         ADD COLUMN IF NOT EXISTS software_refreshed_at TIMESTAMPTZ,
         ADD COLUMN IF NOT EXISTS software_status VARCHAR(20),
         ADD COLUMN IF NOT EXISTS software_count INTEGER,
-        ADD COLUMN IF NOT EXISTS installed_software JSONB;
+        ADD COLUMN IF NOT EXISTS installed_software JSONB,
+        ADD COLUMN IF NOT EXISTS health_snapshot_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS health_sample_fields JSONB,
+        ADD COLUMN IF NOT EXISTS cpu_utilization_percent DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS memory_available_bytes BIGINT,
+        ADD COLUMN IF NOT EXISTS memory_utilization_percent DOUBLE PRECISION,
+        ADD COLUMN IF NOT EXISTS system_drive VARCHAR(2),
+        ADD COLUMN IF NOT EXISTS system_drive_total_bytes BIGINT,
+        ADD COLUMN IF NOT EXISTS system_drive_free_bytes BIGINT,
+        ADD COLUMN IF NOT EXISTS system_drive_utilization_percent DOUBLE PRECISION;
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,

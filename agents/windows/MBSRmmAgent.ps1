@@ -82,6 +82,92 @@ function Convert-MBSDate {
     } catch { return $null }
 }
 
+function Get-MBSCPUUtilization {
+    param([object[]]$Processors)
+    $stage = 'no processors'
+    try {
+        if ($null -eq $Processors -or $Processors.Count -eq 0) { throw 'Unavailable sample' }
+        [double]$sum = 0
+        [int]$count = 0
+        foreach ($processor in $Processors) {
+            $stage = 'processor property unavailable'
+            # Read the native CIM property once; do not depend on repeated adapted property access.
+            if ($processor -is [Microsoft.Management.Infrastructure.CimInstance]) {
+                $property = $processor.CimInstanceProperties['LoadPercentage']
+                if ($null -eq $property) { throw 'Unavailable sample' }
+                $raw = $property.Value
+            } else {
+                $raw = $processor.LoadPercentage
+            }
+            if ($null -eq $raw) { throw 'Unavailable sample' }
+            $stage = 'non-numeric processor sample'
+            if (-not ($raw -is [byte] -or $raw -is [sbyte] -or $raw -is [int16] -or $raw -is [uint16] -or
+                $raw -is [int32] -or $raw -is [uint32] -or $raw -is [int64] -or $raw -is [uint64] -or
+                $raw -is [single] -or $raw -is [double] -or $raw -is [decimal])) { throw 'Invalid sample' }
+            [double]$load = $raw
+            $stage = 'processor sample outside valid range'
+            if ([double]::IsNaN($load) -or [double]::IsInfinity($load) -or $load -lt 0 -or $load -gt 100) { throw 'Invalid sample' }
+            $sum += $load
+            $count++
+        }
+        $stage = 'processor average unavailable'
+        if ($count -eq 0) { throw 'Unavailable sample' }
+        return [math]::Round([double]($sum / $count), 2)
+    } catch {
+        # Only fixed stage names are logged, never CIM objects or raw exception messages.
+        if ($InventoryDiagnostics) { Write-Warning "CPU health unavailable: $stage." }
+        return $null
+    }
+}
+
+# Reuses normal inventory's OS/CPU/memory/boot reads; only the system volume needs another query.
+function Get-MBSDeviceHealth {
+    param([hashtable]$Inventory, $OperatingSystem, [object[]]$Processors)
+    $health = @{
+        health_snapshot_at = (Get-Date).ToUniversalTime().ToString('o')
+        cpu_utilization_percent = $null
+        memory_available_bytes = $null
+        memory_utilization_percent = $null
+        system_drive = $null
+        system_drive_total_bytes = $null
+        system_drive_free_bytes = $null
+        system_drive_utilization_percent = $null
+    }
+    # WMI LoadPercentage is an existing last-second sample. Equal socket mean, no new scan/delay.
+    $health['cpu_utilization_percent'] = Get-MBSCPUUtilization -Processors $Processors
+    try {
+        # FreePhysicalMemory is KiB; total_memory_bytes is existing physical RAM inventory.
+        if ($null -ne $OperatingSystem.FreePhysicalMemory) {
+            $available = [decimal]$OperatingSystem.FreePhysicalMemory * 1024
+            $total = $Inventory.total_memory_bytes
+            if ($available -ge 0 -and $available -le 9007199254740991 -and ($null -eq $total -or $available -le $total)) {
+                $health.memory_available_bytes = [long]$available
+                if ($total -gt 0) { $health.memory_utilization_percent = [math]::Round(100 * (1 - [double]$available / [double]$total), 2) }
+            }
+        }
+    } catch { }
+    try {
+        $drive = [string]$OperatingSystem.SystemDrive
+        if ($drive -cmatch '^[A-Za-z]:$') {
+            $health.system_drive = $drive.ToUpperInvariant()
+            $disk = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DeviceID='$drive'" -OperationTimeoutSec 5 -ErrorAction Stop
+            if ($null -ne $disk.Size) {
+                $total = [decimal]$disk.Size
+                if ($total -ge 0 -and $total -le 9007199254740991) { $health.system_drive_total_bytes = [long]$total }
+            }
+            if ($null -ne $disk.FreeSpace) {
+                $free = [decimal]$disk.FreeSpace
+                $total = $health.system_drive_total_bytes
+                if ($free -ge 0 -and $free -le 9007199254740991 -and ($null -eq $total -or $free -le $total)) {
+                    $health.system_drive_free_bytes = [long]$free
+                    if ($total -gt 0) { $health.system_drive_utilization_percent = [math]::Round(100 * (1 - [double]$free / [double]$total), 2) }
+                }
+            }
+        }
+    } catch { }
+    return $health
+}
+
 function Get-MBSInventory {
     $os = Get-MBSCimInventory Win32_OperatingSystem
     $computer = Get-MBSCimInventory Win32_ComputerSystem
@@ -178,6 +264,12 @@ function Get-MBSInventory {
     } catch {
         if ($InventoryDiagnostics) { Write-Warning "Inventory physical disks conversion failed (details suppressed)." }
         $inventory.physical_disks = $null
+    }
+    try {
+        $health = Get-MBSDeviceHealth -Inventory $inventory -OperatingSystem $os -Processors $processors
+        foreach ($key in $health.Keys) { $inventory[$key] = $health[$key] }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning 'Device health collection unavailable (details suppressed).' }
     }
     return $inventory
 }
@@ -378,7 +470,7 @@ function Send-MBSCheckIn {
         foreach ($field in @("cpu_manufacturer", "cpu_name", "processor_count", "core_count",
             "logical_processor_count", "total_memory_bytes", "bios_manufacturer", "bios_version",
             "bios_release_date", "system_uuid", "os_build", "last_boot_at", "uptime_seconds",
-            "memory_modules", "physical_disks")) {
+            "memory_modules", "physical_disks", "health_snapshot_at", "cpu_utilization_percent")) {
             $property = $serialized.PSObject.Properties[$field]
             $state = "missing"
             if ($null -ne $property) {

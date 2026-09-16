@@ -8,6 +8,7 @@
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="/jsqr.min.js"></script>
+  <script src="/rmmHealth.js"></script>
   <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }</style>
 </head>
 <body>
@@ -2339,6 +2340,41 @@ function RMMSoftwareInventory({ device: d, jobSnapshot }) {
   </section>;
 }
 
+function RMMDeviceHealth({ device: d, now }) {
+  const h=RMMHealth.evaluate(d,now);
+  const pct=RMMHealth.percent, bytes=RMMHealth.bytes;
+  const value=key=>RMMHealth.currentValue(d,key);
+  const metrics=[
+    ['CPU',pct(value('cpu_utilization_percent')),h.flags.cpu],
+    ['Memory',`${pct(value('memory_utilization_percent'))} used · ${bytes(RMMHealth.used(value('total_memory_bytes'),value('memory_available_bytes')))} used · ${bytes(value('memory_available_bytes'))} available / ${bytes(value('total_memory_bytes'))} total`,h.flags.memory],
+    [`System Drive ${value('system_drive')||'Unknown'}`,`${pct(value('system_drive_utilization_percent'))} used · ${bytes(RMMHealth.used(value('system_drive_total_bytes'),value('system_drive_free_bytes')))} used · ${bytes(value('system_drive_free_bytes'))} free / ${bytes(value('system_drive_total_bytes'))} total`,h.flags.disk],
+    ['Uptime',RMMHealth.uptime(value('uptime_seconds')),h.flags.uptime],
+    ['Last boot',value('last_boot_at')?new Date(value('last_boot_at')).toLocaleString():'Unknown',false],
+    ['Last health snapshot',d.health_snapshot_at?new Date(d.health_snapshot_at).toLocaleString():'Never reported',false],
+    ['Telemetry age',h.ageMs==null?'Unknown':h.ageMs<0?'Unknown (endpoint clock is ahead)':`${Math.floor(h.ageMs/60000)} minutes · ${h.freshness}`,false],
+  ];
+  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+    <h3>Device Health</h3>
+    <p role="status" style={{ color:h.state==='warning'?T.warningText:T.muted }}>{h.label}</p>
+    {h.freshness!=='current'&&<p style={{ color:T.muted,fontSize:12 }}>These are last-reported values; current device health is unknown.</p>}
+    {h.warnings.length>0&&<p style={{ color:T.warningText,fontSize:12 }}>Snapshot warnings: {h.warnings.join(' · ')}</p>}
+    {h.unknown.length>0&&<p style={{ color:T.muted,fontSize:12 }}>Unknown or not refreshed in latest snapshot: {h.unknown.join(', ')}</p>}
+    <dl style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16 }}>
+      {metrics.map(([label,value,warning])=><div key={label}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,fontSize:13,color:warning?T.warningText:T.slate,overflowWrap:'anywhere' }}>{warning?'Warning · ':''}{value}</dd></div>)}
+    </dl>
+    <p style={{ color:T.muted,fontSize:12 }}>Latest snapshot only · Warnings at CPU {RMMHealth.thresholds.cpuPercent}%, memory {RMMHealth.thresholds.memoryPercent}%, disk {RMMHealth.thresholds.diskPercent}% used; disk also warns below {bytes(RMMHealth.thresholds.diskFreeBytes)} free. Uptime warns at {RMMHealth.thresholds.uptimeSeconds/86400} days. Health becomes stale after {RMMHealth.thresholds.freshnessMs/60000} minutes. Online/offline status is separate.</p>
+  </section>;
+}
+
+function RMMFleetHealth({ device, now }) {
+  const h=RMMHealth.evaluate(device,now);
+  const title=[h.label,...h.warnings,...h.unknown.map(name=>`${name}: unknown`)].join('\n');
+  return <details style={{ color:h.state==='warning'?T.warningText:T.muted,fontSize:11,marginTop:4,maxWidth:240 }}>
+    <summary title={title} style={{ cursor:'pointer' }}>{h.label}{h.warnings.length?` · ${h.warnings[0]}${h.warnings.length>1?` (+${h.warnings.length-1})`:''}`:''}</summary>
+    <div style={{ whiteSpace:'pre-line',paddingTop:4 }}>{title}</div>
+  </details>;
+}
+
 function RMMHardwareInventory({ device: d }) {
   const bytes = value => {
     if (value == null) return "—";
@@ -2413,6 +2449,11 @@ function RMMTab({ onViewAsset }) {
   const [error,setError] = useState("");
   const [selectedDevice,setSelectedDevice] = useState(null);
   const [deviceJobs,setDeviceJobs] = useState(null);
+  const [healthNow,setHealthNow] = useState(Date.now);
+  useEffect(()=>{
+    const timer=setInterval(()=>setHealthNow(Date.now()),30000);
+    return ()=>clearInterval(timer);
+  },[]);
   const [deviceLoading,setDeviceLoading] = useState(false);
   const [deviceError,setDeviceError] = useState("");
 
@@ -2811,6 +2852,7 @@ function RMMTab({ onViewAsset }) {
                     </dl>
                   </section>
                 ))}
+                <RMMDeviceHealth device={selectedDevice} now={healthNow} />
                 <RMMHardwareInventory device={selectedDevice} />
                 <RMMWindowsUpdates key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />
                 <RMMSoftwareInventory key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />
@@ -2960,6 +3002,7 @@ function RMMTab({ onViewAsset }) {
                           </button>
                           <div style={{ color:T.muted,fontSize:10,marginTop:4,maxWidth:240 }}>{rmmUpdateState(device)}</div>
                           <div style={{ color:T.muted,fontSize:10,marginTop:3,maxWidth:240 }}>{rmmSoftwareState(device)}</div>
+                          <RMMFleetHealth device={device} now={healthNow} />
                         </td>
 
                         <td style={{ padding:"11px 14px" }}>

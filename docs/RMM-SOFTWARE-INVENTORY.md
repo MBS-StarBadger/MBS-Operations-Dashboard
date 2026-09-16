@@ -62,3 +62,5 @@ Run `agents/windows/tests/SoftwareInventory.Tests.ps1` on Windows PowerShell 5.1
 Live acceptance: upgraded SYSTEM agent on 32-/64-bit Windows and both process views, denied/missing registry roots, duplicate software, old agents, successful/failed refreshes, PostgreSQL upgrade and concurrent job requests, and rendered light/dark device/fleet layouts. No browser rendering test was performed here.
 
 References: [Microsoft registry-based software inventory guidance](https://learn.microsoft.com/en-us/powershell/scripting/samples/working-with-software-installations), [uninstall registry metadata](https://learn.microsoft.com/en-us/windows/win32/msi/uninstall-registry-key).
+
+Normal check-ins and all existing inventory jobs also include lightweight [Device Health](RMM-DEVICE-HEALTH.md) snapshots. This does not trigger update or software collection outside their dedicated jobs.

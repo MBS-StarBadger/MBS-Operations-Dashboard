@@ -97,9 +97,35 @@ function validateSoftware(body) {
   }
   return result;
 }
+const percentage = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+const healthFields = {
+  health_snapshot_at: value => date(value) && calendarDate(value.slice(0,10)),
+  cpu_utilization_percent: percentage, memory_available_bytes: capacity,
+  memory_utilization_percent: percentage,
+  system_drive: value => typeof value === 'string' && /^[A-Za-z]:$/.test(value),
+  system_drive_total_bytes: capacity, system_drive_free_bytes: capacity,
+  system_drive_utilization_percent: percentage,
+};
+function validateHealth(body) {
+  const result = {};
+  for (const [field, valid] of Object.entries(healthFields)) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+    if (body[field] !== null && !valid(body[field])) throw new Error(`Invalid inventory field: ${field}`);
+    result[field] = body[field];
+  }
+  // Server-owned coverage prevents a new partial snapshot from refreshing omitted metrics.
+  if (Object.prototype.hasOwnProperty.call(body, 'health_snapshot_at')) {
+    result.health_sample_fields = [...Object.keys(healthFields).filter(key => key !== 'health_snapshot_at'), 'total_memory_bytes', 'last_boot_at', 'uptime_seconds']
+      .filter(key => Object.prototype.hasOwnProperty.call(body, key) && body[key] != null);
+  }
+  for (const [free, total] of [['memory_available_bytes', 'total_memory_bytes'], ['system_drive_free_bytes', 'system_drive_total_bytes']]) {
+    if (body[free] != null && body[total] != null && body[free] > body[total]) throw new Error(`Invalid inventory capacity: ${free} exceeds ${total}`);
+  }
+  return result;
+}
 function validateInventory(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Inventory must be an object');
-  const hardware = { ...validateUpdates(body), ...validateSoftware(body) };
+  const hardware = { ...validateUpdates(body), ...validateSoftware(body), ...validateHealth(body) };
   for (const [field, valid] of Object.entries({ ...legacyFields, ...hardwareFields })) {
     const value = body[field];
     if (value != null && !valid(value)) throw new Error(`Invalid inventory field: ${field}`);

@@ -45,3 +45,5 @@ Live validation should cover SYSTEM scheduled execution, managed WSUS/default-so
 References: [WUA Search](https://learn.microsoft.com/en-us/windows/win32/api/wuapi/nf-wuapi-iupdatesearcher-search), [WUA reboot state](https://learn.microsoft.com/en-us/windows/win32/api/wuapi/nf-wuapi-isysteminformation-get_rebootrequired), [installation reboot behavior](https://learn.microsoft.com/en-us/windows/win32/api/wuapi/ne-wuapi-installationrebootbehavior).
 
 Validate the partial unique index against concurrent manual/automatic requests on PostgreSQL, and verify a weekly job is queued without an open browser. Check manual scans before the seven-day interval and that Refresh Inventory never triggers WUA.
+
+Normal check-ins and all existing inventory jobs also include lightweight [Device Health](RMM-DEVICE-HEALTH.md) snapshots. This does not trigger update or software collection outside their dedicated jobs.

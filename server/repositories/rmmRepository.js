@@ -83,6 +83,16 @@ async function findById(id) {
       d.software_status,
       d.software_count,
       d.installed_software,
+      d.health_snapshot_at,
+      d.health_sample_fields,
+      d.cpu_utilization_percent,
+      d.memory_available_bytes,
+      d.memory_utilization_percent,
+      d.system_drive,
+      d.system_drive_total_bytes,
+      d.system_drive_free_bytes,
+      d.system_drive_utilization_percent,
+
 
       d.manufacturer,
       d.model,
@@ -183,6 +193,7 @@ async function checkIn({
     'logical_processor_count', 'total_memory_bytes', 'memory_modules',
     'bios_manufacturer', 'bios_version', 'bios_release_date', 'system_uuid',
     'os_build', 'last_boot_at', 'uptime_seconds', 'physical_disks',
+    'health_sample_fields', 'health_snapshot_at', 'cpu_utilization_percent', 'memory_available_bytes', 'memory_utilization_percent', 'system_drive', 'system_drive_total_bytes', 'system_drive_free_bytes', 'system_drive_utilization_percent',
     'software_attempted_at', 'software_refreshed_at', 'software_status', 'software_count', 'installed_software',
     'update_attempted_at', 'update_refreshed_at', 'update_scan_status', 'update_pending_count', 'update_security_count', 'update_driver_count', 'update_reboot_required', 'pending_updates',
   ];
@@ -190,7 +201,7 @@ async function checkIn({
   // Only supplied fields enter SET; identifiers come from this fixed allowlist.
   for (const field of hardwareColumns) {
     if (!Object.prototype.hasOwnProperty.call(hardware, field)) continue;
-    const jsonb = field === 'memory_modules' || field === 'physical_disks' || field === 'pending_updates' || field === 'installed_software';
+    const jsonb = field === 'memory_modules' || field === 'physical_disks' || field === 'pending_updates' || field === 'installed_software' || field === 'health_sample_fields';
     const value = hardware[field];
     params.push(jsonb && value != null ? JSON.stringify(value) : value ?? null);
     hardwareUpdates.push(`${field} = $${params.length}${jsonb ? '::jsonb' : ''},`);
