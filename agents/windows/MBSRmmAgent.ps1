@@ -1,5 +1,6 @@
 param(
-    [string]$ConfigPath = "C:\ProgramData\MBS-RMM\agent.json"
+    [string]$ConfigPath = "C:\ProgramData\MBS-RMM\agent.json",
+    [switch]$InventoryDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,23 +49,137 @@ function Get-MBSPrimaryIPv4 {
     }
 }
 
-function Get-MBSInventory {
-    $os = Get-CimInstance Win32_OperatingSystem
-    $computer = Get-CimInstance Win32_ComputerSystem
-    $bios = Get-CimInstance Win32_BIOS
-
-    return @{
-        hostname       = $env:COMPUTERNAME
-        os_name        = $os.Caption
-        os_version     = $os.Version
-        architecture   = $os.OSArchitecture
-        serial_number  = $bios.SerialNumber
-        manufacturer   = $computer.Manufacturer
-        model          = $computer.Model
-        ip_address     = Get-MBSPrimaryIPv4
-        logged_in_user = $computer.UserName
-        agent_version  = $AgentVersion
+function Get-MBSCimInventory {
+    param([string]$ClassName)
+    try { Get-CimInstance -ClassName $ClassName -OperationTimeoutSec 10 -ErrorAction Stop }
+    catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory collection failed for $ClassName (details suppressed)." }
+        return $null
     }
+}
+
+function Convert-MBSText {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    return $text
+}
+
+function Convert-MBSPositiveNumber {
+    param($Value)
+    if ($null -eq $Value -or $Value -le 0) { return $null }
+    return [long]$Value
+}
+
+function Convert-MBSDate {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    try {
+        $date = [datetime]$Value
+        if ($date.Year -lt 1980 -or $date -gt (Get-Date)) { return $null }
+        return $date.ToUniversalTime().ToString("o")
+    } catch { return $null }
+}
+
+function Get-MBSInventory {
+    $os = Get-MBSCimInventory Win32_OperatingSystem
+    $computer = Get-MBSCimInventory Win32_ComputerSystem
+    $bios = Get-MBSCimInventory Win32_BIOS
+    $inventory = @{
+        hostname       = $env:COMPUTERNAME
+        os_name        = Convert-MBSText $os.Caption
+        os_version     = Convert-MBSText $os.Version
+        architecture   = Convert-MBSText $os.OSArchitecture
+        serial_number  = Convert-MBSText $bios.SerialNumber
+        manufacturer   = Convert-MBSText $computer.Manufacturer
+        model          = Convert-MBSText $computer.Model
+        ip_address     = Get-MBSPrimaryIPv4
+        logged_in_user = Convert-MBSText $computer.UserName
+        agent_version  = $AgentVersion
+        total_memory_bytes = Convert-MBSPositiveNumber $computer.TotalPhysicalMemory
+        bios_manufacturer = Convert-MBSText $bios.Manufacturer
+        bios_version = Convert-MBSText $bios.SMBIOSBIOSVersion
+        bios_release_date = Convert-MBSDate $bios.ReleaseDate
+        os_build = Convert-MBSText $os.BuildNumber
+        last_boot_at = Convert-MBSDate $os.LastBootUpTime
+        uptime_seconds = $null
+        cpu_manufacturer = $null
+        cpu_name = $null
+        processor_count = $null
+        core_count = $null
+        logical_processor_count = $null
+        system_uuid = $null
+        memory_modules = $null
+        physical_disks = $null
+    }
+    try {
+        if ($inventory.last_boot_at) {
+            $inventory.uptime_seconds = [long][math]::Floor(((Get-Date).ToUniversalTime() - ([datetime]$inventory.last_boot_at).ToUniversalTime()).TotalSeconds)
+        }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory uptime conversion failed (details suppressed)." }
+        $inventory.uptime_seconds = $null
+    }
+    try {
+        $processors = @(Get-MBSCimInventory Win32_Processor | Where-Object { $null -ne $_ })
+        if ($processors.Count -gt 0) {
+            $inventory.cpu_manufacturer = Convert-MBSText (($processors | ForEach-Object { $_.Manufacturer } | Select-Object -Unique) -join "; ")
+            $inventory.cpu_name = Convert-MBSText (($processors | ForEach-Object { $_.Name } | Select-Object -Unique) -join "; ")
+            $inventory.processor_count = $processors.Count
+            $inventory.core_count = Convert-MBSPositiveNumber (($processors | Measure-Object NumberOfCores -Sum).Sum)
+            $inventory.logical_processor_count = Convert-MBSPositiveNumber (($processors | Measure-Object NumberOfLogicalProcessors -Sum).Sum)
+        }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory processor conversion failed (details suppressed)." }
+        $inventory.cpu_manufacturer = $null; $inventory.cpu_name = $null
+        $inventory.processor_count = $null; $inventory.core_count = $null; $inventory.logical_processor_count = $null
+    }
+    try {
+        $product = Get-MBSCimInventory Win32_ComputerSystemProduct
+        $uuid = Convert-MBSText $product.UUID
+        if ($uuid -and $uuid -notmatch '^(0{8}-0{4}-0{4}-0{4}-0{12}|F{8}-F{4}-F{4}-F{4}-F{12})$') { $inventory.system_uuid = $uuid }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory system identity conversion failed (details suppressed)." }
+        $inventory.system_uuid = $null
+    }
+    try {
+        $modules = Get-MBSCimInventory Win32_PhysicalMemory
+        if ($null -ne $modules) {
+            $inventory.memory_modules = @($modules | Select-Object -First 128 | ForEach-Object {
+                @{
+                    capacity_bytes = Convert-MBSPositiveNumber $_.Capacity
+                    manufacturer = Convert-MBSText $_.Manufacturer
+                    part_number = Convert-MBSText $_.PartNumber
+                    speed_mhz = Convert-MBSPositiveNumber $_.Speed
+                    configured_speed_mhz = Convert-MBSPositiveNumber $_.ConfiguredClockSpeed
+                    bank = Convert-MBSText $_.BankLabel
+                    locator = Convert-MBSText $_.DeviceLocator
+                }
+            })
+        }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory memory modules conversion failed (details suppressed)." }
+        $inventory.memory_modules = $null
+    }
+    try {
+        $disks = Get-MBSCimInventory Win32_DiskDrive
+        if ($null -ne $disks) {
+            $inventory.physical_disks = @($disks | Select-Object -First 64 | ForEach-Object {
+                @{
+                    model = Convert-MBSText $_.Model
+                    serial_number = Convert-MBSText $_.SerialNumber
+                    capacity_bytes = Convert-MBSPositiveNumber $_.Size
+                    media_type = Convert-MBSText $_.MediaType
+                    bus_type = Convert-MBSText $_.InterfaceType
+                }
+            })
+        }
+    } catch {
+        if ($InventoryDiagnostics) { Write-Warning "Inventory physical disks conversion failed (details suppressed)." }
+        $inventory.physical_disks = $null
+    }
+    return $inventory
 }
 
 function Send-MBSCheckIn {
@@ -80,7 +195,27 @@ function Send-MBSCheckIn {
         "x-rmm-agent-token" = $Config.token
     }
 
-    $body = $Inventory | ConvertTo-Json
+    $body = $Inventory | ConvertTo-Json -Depth 6
+    if ($InventoryDiagnostics) {
+        # Inspect the actual wire JSON, not an earlier copy of the hashtable.
+        # Only fixed field names and presence/counts are emitted, never values or headers.
+        $serialized = $body | ConvertFrom-Json
+        foreach ($field in @("cpu_manufacturer", "cpu_name", "processor_count", "core_count",
+            "logical_processor_count", "total_memory_bytes", "bios_manufacturer", "bios_version",
+            "bios_release_date", "system_uuid", "os_build", "last_boot_at", "uptime_seconds",
+            "memory_modules", "physical_disks")) {
+            $property = $serialized.PSObject.Properties[$field]
+            $state = "missing"
+            if ($null -ne $property) {
+                $state = "null"
+                if ($null -ne $property.Value) {
+                    $state = "populated"
+                    if ($property.Value -is [array]) { $state = "items=$($property.Value.Count)" }
+                }
+            }
+            Write-Host "Inventory JSON ${field}: $state"
+        }
+    }
 
     Invoke-RestMethod `
         -Uri $uri `

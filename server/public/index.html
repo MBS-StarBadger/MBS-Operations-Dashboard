@@ -2203,6 +2203,36 @@ function RMMDeviceJobs({ deviceId, onDeviceRefresh }) {
   );
 }
 
+function RMMHardwareInventory({ device: d }) {
+  const bytes = value => {
+    if (value == null) return "—";
+    const n = Number(value);
+    return n >= 1024**4 ? `${(n/1024**4).toFixed(2)} TiB` : `${(n/1024**3).toFixed(2)} GiB`;
+  };
+  const date = value => value ? new Date(value).toLocaleString() : "—";
+  const uptime = value => value == null ? "—" : `${Math.floor(Number(value)/86400)}d ${Math.floor(Number(value)%86400/3600)}h ${Math.floor(Number(value)%3600/60)}m (at check-in)`;
+  const groups = [
+    ["System", [["Manufacturer",d.manufacturer],["Model",d.model],["Serial Number",d.serial_number],["UUID",d.system_uuid]]],
+    ["Operating System", [["Edition",d.os_name],["Version / Build",[d.os_version,d.os_build].filter(Boolean).join(" / ")],["Architecture",d.architecture],["Last Boot",date(d.last_boot_at)],["Uptime",uptime(d.uptime_seconds)]]],
+    ["Processor", [["Manufacturer",d.cpu_manufacturer],["CPU",d.cpu_name],["Sockets",d.processor_count],["Physical Cores",d.core_count],["Logical Threads",d.logical_processor_count]]],
+    ["BIOS", [["Manufacturer",d.bios_manufacturer],["Version",d.bios_version],["Release Date",date(d.bios_release_date)]]],
+  ];
+  const table = (rows, columns) => !rows?.length ? <p style={{ color:T.muted }}>Not reported</p> : <div style={{ overflowX:"auto" }}><table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+    <thead><tr>{columns.map(([label])=><th key={label} style={{ textAlign:"left",padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
+    <tbody>{rows.map((row,i)=><tr key={i}>{columns.map(([label,key,format])=><td key={key} title={row[key]==null?undefined:String(row[key])} style={{ padding:8,color:T.slate,borderTop:`1px solid ${T.border}`,overflowWrap:"anywhere",maxWidth:240 }}>{format?format(row[key]):row[key]??"—"}</td>)}</tr>)}</tbody>
+  </table></div>;
+  return <section style={{ gridColumn:"1 / -1",minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface }}>
+    <h3 style={{ color:T.slate }}>Hardware / System Inventory</h3>
+    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16 }}>
+      {groups.map(([title,fields])=><div key={title} style={{ minWidth:0 }}><h4 style={{ color:T.slate }}>{title}</h4><dl>{fields.map(([label,value])=><div key={label} style={{ marginBottom:8 }}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,color:T.slate,fontSize:12,overflowWrap:"anywhere" }}>{value??"—"}</dd></div>)}</dl></div>)}
+    </div>
+    <h4 style={{ color:T.slate }}>Memory · <span title={d.total_memory_bytes==null?undefined:`${d.total_memory_bytes} bytes`}>{bytes(d.total_memory_bytes)}</span></h4>
+    {table(d.memory_modules, [["Capacity","capacity_bytes",bytes],["Manufacturer","manufacturer"],["Part Number","part_number"],["Speed (MHz)","speed_mhz"],["Configured (MHz)","configured_speed_mhz"],["Bank","bank"],["Locator","locator"]])}
+    <h4 style={{ color:T.slate }}>Physical Storage</h4>
+    {table(d.physical_disks, [["Model","model"],["Serial","serial_number"],["Capacity","capacity_bytes",bytes],["Media","media_type"],["Reported Interface","bus_type"]])}
+  </section>;
+}
+
 function RMMAssetVerification({ correlation, onViewAsset }) {
   const c = correlation;
   const [error,setError] = useState("");
@@ -2644,6 +2674,7 @@ function RMMTab({ onViewAsset }) {
                     </dl>
                   </section>
                 ))}
+                <RMMHardwareInventory device={selectedDevice} />
                 <RMMAssetVerification correlation={selectedDevice.correlation} onViewAsset={onViewAsset} />
                 <RMMDeviceJobs key={selectedDevice.id} deviceId={selectedDevice.id} onDeviceRefresh={setSelectedDevice} />
               </div>

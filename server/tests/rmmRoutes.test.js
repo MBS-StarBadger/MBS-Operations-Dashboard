@@ -897,4 +897,149 @@ describe('RMM routes', () => {
     });
   });
 
+  describe('hardware inventory check-in', () => {
+    const token = 'hardware-test-only';
+    function authenticate() {
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10, agent_id: 'hw-agent', hostname: 'HW',
+        agent_token_hash: require('crypto').createHash('sha256').update(token).digest('hex') }] });
+    }
+    function checkin(body) {
+      return request(app).post('/api/rmm/agent/checkin').set('x-rmm-agent-id','hw-agent')
+        .set('x-rmm-agent-token',token).send(body);
+    }
+    test('stores CPU, RAM modules, BIOS, UUID, OS boot and disk inventory', async () => {
+      authenticate();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10, status: 'online' }] });
+      const body = { hostname:'HW', cpu_manufacturer:'Intel', cpu_name:'Test CPU', processor_count:1,
+        core_count:8, logical_processor_count:16, total_memory_bytes:34359738368,
+        memory_modules:[{ capacity_bytes:17179869184, manufacturer:'Memory Co', part_number:'PN', speed_mhz:3200, configured_speed_mhz:2933, bank:'BANK 0', locator:'DIMM 1' }],
+        bios_manufacturer:'Dell', bios_version:'1.2', bios_release_date:'2025-01-01T00:00:00Z',
+        system_uuid:'12345678-1234-1234-1234-123456789abc', os_version:'10.0', os_build:'26100',
+        last_boot_at:'2026-09-01T12:00:00Z', uptime_seconds:1234,
+        physical_disks:[{ model:'Disk', serial_number:'DISK1', capacity_bytes:1000000000000, media_type:'Fixed hard disk media', bus_type:'SCSI' }] };
+      expect((await checkin(body)).status).toBe(200);
+      const [sql,params] = pool.query.mock.calls[1];
+      for (const key of ['cpu_manufacturer','cpu_name','processor_count','core_count','logical_processor_count','total_memory_bytes','memory_modules','bios_manufacturer','bios_version','bios_release_date','system_uuid','os_build','last_boot_at','uptime_seconds','physical_disks']) {
+        const index = Number(sql.match(new RegExp(key + ' = \\$([0-9]+)'))[1]) - 1;
+        expect(params[index]).toEqual(Array.isArray(body[key])?JSON.stringify(body[key]):body[key]);
+      }
+      expect(require('../repositories/rmmCorrelationRepository').correlateDevice).toHaveBeenCalledWith(10,{autoLink:true});
+    });
+    test('representative wire JSON retains populated hardware through validation, controller and SQL bindings', async () => {
+      authenticate();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: 10, status: 'online' }] });
+      const payload = {
+        hostname: 'HW', cpu_manufacturer: 'GenuineIntel', cpu_name: 'Intel(R) Core(TM) Ultra 5 125U',
+        processor_count: 1, core_count: 12, logical_processor_count: 14, total_memory_bytes: 16597598208,
+        memory_modules: [{ capacity_bytes: 17179869184, manufacturer: 'Test', part_number: 'PN', speed_mhz: 5600, configured_speed_mhz: 5600, bank: 'BANK 0', locator: 'DIMM 0' }],
+        bios_manufacturer: 'Dell Inc.', bios_version: '1.2', bios_release_date: '2025-01-01T00:00:00.0000000Z',
+        system_uuid: '12345678-1234-1234-1234-123456789abc', os_build: '26100',
+        last_boot_at: '2026-01-01T00:00:00.0000000Z', uptime_seconds: 1234,
+        physical_disks: [{ model: 'Test disk', serial_number: 'TEST-DISK', capacity_bytes: 512000000000, media_type: 'Fixed hard disk media', bus_type: 'SCSI' }],
+      };
+      const json = JSON.stringify(payload, null, 4);
+      const validated = require('../validation/rmmInventory').validateInventory(JSON.parse(json));
+      for (const [key, value] of Object.entries(payload)) {
+        if (key !== 'hostname') expect(validated[key]).toEqual(value);
+      }
+      const response = await request(app).post('/api/rmm/agent/checkin')
+        .set('x-rmm-agent-id', 'hw-agent').set('x-rmm-agent-token', token)
+        .set('Content-Type', 'application/json').send(json);
+      expect(response.status).toBe(200);
+      // Explicit parameter order independently verifies the SQL mapping, including arrays.
+      expect(pool.query.mock.calls[1][1].slice(11)).toEqual([
+        payload.cpu_manufacturer, payload.cpu_name, 1, 12, 14, 16597598208,
+        JSON.stringify(payload.memory_modules), payload.bios_manufacturer, payload.bios_version,
+        payload.bios_release_date, payload.system_uuid, payload.os_build, payload.last_boot_at,
+        1234, JSON.stringify(payload.physical_disks),
+      ]);
+      expect(require('../repositories/rmmCorrelationRepository').correlateDevice).toHaveBeenCalledWith(10, {autoLink:true});
+    });
+    test.each([
+      {cpu_name:{}}, {core_count:-1}, {processor_count:1.5}, {total_memory_bytes:'32 GB'},
+      {last_boot_at:'yesterday'}, {cpu_name:'x'.repeat(301)}, {memory_modules:{}},
+      {memory_modules:[null]}, {memory_modules:[{capacity_bytes:-2}]},
+      {memory_modules:Array(129).fill({})}, {physical_disks:Array(65).fill({})},
+      {physical_disks:[{serial_number:'x'.repeat(201)}]}, {physical_disks:[{bus_type:{}}]},
+    ])('rejects malformed or oversized payload %j', async body => {
+      authenticate();
+      expect((await checkin(body)).status).toBe(400);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+      expect(require('../repositories/rmmCorrelationRepository').correlateDevice).not.toHaveBeenCalled();
+    });
+    test('validation distinguishes omitted fields from supplied null, zero and empty arrays', () => {
+      const { validateInventory } = require('../validation/rmmInventory');
+      expect(validateInventory({ hostname: 'HW' })).toEqual({});
+      expect(validateInventory({ cpu_name: null, uptime_seconds: 0,
+        memory_modules: [], physical_disks: null })).toEqual({
+        cpu_name: null, uptime_seconds: 0, memory_modules: [], physical_disks: null,
+      });
+    });
+    test('legacy check-ins preserve hardware and later supplied fields replace only reported inventory', async () => {
+      const inventory = {
+        cpu_manufacturer: 'Intel', cpu_name: 'Original CPU', processor_count: 1,
+        core_count: 8, logical_processor_count: 16, total_memory_bytes: 34359738368,
+        bios_manufacturer: 'Dell', bios_version: '1.2', bios_release_date: '2025-01-01T00:00:00Z',
+        system_uuid: 'test-uuid', os_build: '26100', last_boot_at: '2026-09-01T00:00:00Z',
+        uptime_seconds: 1234, memory_modules: [], physical_disks: [],
+      };
+      inventory.memory_modules = [{ capacity_bytes: 34359738368, manufacturer: 'Memory Co',
+        part_number: 'PN', speed_mhz: 3200, configured_speed_mhz: 3200, bank: '0', locator: 'DIMM 1' }];
+      inventory.physical_disks = [{ model: 'Disk', serial_number: 'D1', capacity_bytes: 512000000000,
+        media_type: 'SSD', bus_type: 'NVMe' }];
+
+      async function submit(body) {
+        authenticate();
+        pool.query.mockResolvedValueOnce({ rows: [{ id: 10, status: 'online' }] });
+        expect((await checkin(body)).status).toBe(200);
+        return pool.query.mock.calls[pool.query.mock.calls.length - 1];
+      }
+      function expectAssignments([sql, params], supplied) {
+        for (const field of Object.keys(inventory)) {
+          const assignment = sql.match(new RegExp(`\\b${field} = \\$([0-9]+)(::jsonb)?`));
+          if (!Object.prototype.hasOwnProperty.call(supplied, field)) {
+            // An omitted column cannot be overwritten by this UPDATE.
+            expect(assignment).toBeNull();
+            continue;
+          }
+          expect(assignment).not.toBeNull();
+          const value = supplied[field];
+          expect(params[Number(assignment[1]) - 1]).toEqual(Array.isArray(value) ? JSON.stringify(value) : value);
+          if (Array.isArray(value)) expect(assignment[2]).toBe('::jsonb');
+        }
+        expect(params).toHaveLength(11 + Object.keys(supplied).length);
+      }
+
+      expectAssignments(await submit({ hostname: 'HW', ...inventory }), inventory);
+      const legacyUpdate = await submit({ hostname: 'HW', agent_version: 'legacy' });
+      expectAssignments(legacyUpdate, {});
+      expect(legacyUpdate[0]).toContain('os_name = $3');
+      expect(legacyUpdate[1][2]).toBeNull();
+      expect(legacyUpdate[1][8]).toBe('legacy');
+
+      const scalars = { cpu_name: 'Replacement CPU', total_memory_bytes: 68719476736,
+        bios_version: '2.0', uptime_seconds: 0 };
+      expectAssignments(await submit(scalars), scalars);
+      const arrays = {
+        memory_modules: [{ ...inventory.memory_modules[0], capacity_bytes: 68719476736 }],
+        physical_disks: [{ ...inventory.physical_disks[0], serial_number: 'D2' }],
+      };
+      expectAssignments(await submit(arrays), arrays);
+      const emptyArrays = { memory_modules: [], physical_disks: [] };
+      expectAssignments(await submit(emptyArrays), emptyArrays);
+      const cleared = { cpu_name: null, memory_modules: null, physical_disks: null };
+      expectAssignments(await submit(cleared), cleared);
+    });
+    test('missing optional hardware still checks in without hardware update parameters', async () => {
+      authenticate(); pool.query.mockResolvedValueOnce({ rows:[{id:10,status:'online'}] });
+      expect((await checkin({hostname:'HW'})).status).toBe(200);
+      expect(pool.query.mock.calls[1][1]).toHaveLength(11);
+    });
+    test('accepts array count limits and discards unknown module properties', async () => {
+      authenticate(); pool.query.mockResolvedValueOnce({ rows:[{id:10,status:'online'}] });
+      expect((await checkin({memory_modules:Array(128).fill({capacity_bytes:1024,unexpected:'ignored'}),physical_disks:Array(64).fill({})})).status).toBe(200);
+      expect(pool.query.mock.calls[1][1].some(x=>typeof x==='string'&&x.includes('unexpected'))).toBe(false);
+    });
+  });
+
 });

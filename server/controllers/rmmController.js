@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { validateInventory } = require('../validation/rmmInventory');
 const rmmCorrelationRepository = require('../repositories/rmmCorrelationRepository');
 const rmmRepository = require('../repositories/rmmRepository');
 const rmmAuditRepository = require('../repositories/rmmAuditRepository');
@@ -111,6 +112,9 @@ async function enrollDevice(req, res) {
 }
 
 async function agentCheckIn(req, res) {
+  let hardware;
+  try { hardware = validateInventory(req.body || {}); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
   try {
     const device = req.rmmDevice;
 
@@ -125,6 +129,7 @@ async function agentCheckIn(req, res) {
     }
 
     const updated = await rmmRepository.checkIn({
+      hardware,
       agentId: device.agent_id,
       hostname,
       osName: req.body?.os_name || null,

@@ -139,7 +139,22 @@ async function initDB() {
       ALTER TABLE rmm_devices
         ADD COLUMN IF NOT EXISTS agent_token_hash VARCHAR(64),
         ADD COLUMN IF NOT EXISTS manufacturer VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS model VARCHAR(100);
+        ADD COLUMN IF NOT EXISTS model VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS cpu_manufacturer VARCHAR(200),
+        ADD COLUMN IF NOT EXISTS cpu_name VARCHAR(300),
+        ADD COLUMN IF NOT EXISTS processor_count INTEGER,
+        ADD COLUMN IF NOT EXISTS core_count INTEGER,
+        ADD COLUMN IF NOT EXISTS logical_processor_count INTEGER,
+        ADD COLUMN IF NOT EXISTS total_memory_bytes BIGINT,
+        ADD COLUMN IF NOT EXISTS memory_modules JSONB,
+        ADD COLUMN IF NOT EXISTS bios_manufacturer VARCHAR(200),
+        ADD COLUMN IF NOT EXISTS bios_version VARCHAR(300),
+        ADD COLUMN IF NOT EXISTS bios_release_date TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS system_uuid VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS os_build VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS last_boot_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS uptime_seconds BIGINT,
+        ADD COLUMN IF NOT EXISTS physical_disks JSONB;
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,

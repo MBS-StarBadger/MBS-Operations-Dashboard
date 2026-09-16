@@ -55,6 +55,21 @@ async function findById(id) {
       d.os_version,
       d.architecture,
       d.serial_number,
+      d.cpu_manufacturer,
+      d.cpu_name,
+      d.processor_count,
+      d.core_count,
+      d.logical_processor_count,
+      d.total_memory_bytes,
+      d.memory_modules,
+      d.bios_manufacturer,
+      d.bios_version,
+      d.bios_release_date,
+      d.system_uuid,
+      d.os_build,
+      d.last_boot_at,
+      d.uptime_seconds,
+      d.physical_disks,
       d.manufacturer,
       d.model,
       d.ip_address,
@@ -145,7 +160,25 @@ async function checkIn({
   agentVersion,
   manufacturer,
   model,
+  hardware = {},
 }) {
+  const params = [agentId, hostname, osName, osVersion, architecture, serialNumber,
+    ipAddress, loggedInUser, agentVersion, manufacturer, model];
+  const hardwareColumns = [
+    'cpu_manufacturer', 'cpu_name', 'processor_count', 'core_count',
+    'logical_processor_count', 'total_memory_bytes', 'memory_modules',
+    'bios_manufacturer', 'bios_version', 'bios_release_date', 'system_uuid',
+    'os_build', 'last_boot_at', 'uptime_seconds', 'physical_disks',
+  ];
+  const hardwareUpdates = [];
+  // Only supplied fields enter SET; identifiers come from this fixed allowlist.
+  for (const field of hardwareColumns) {
+    if (!Object.prototype.hasOwnProperty.call(hardware, field)) continue;
+    const jsonb = field === 'memory_modules' || field === 'physical_disks';
+    const value = hardware[field];
+    params.push(jsonb && value != null ? JSON.stringify(value) : value ?? null);
+    hardwareUpdates.push(`${field} = $${params.length}${jsonb ? '::jsonb' : ''},`);
+  }
   const result = await pool.query(
     `
     UPDATE rmm_devices
@@ -160,6 +193,7 @@ async function checkIn({
       agent_version = $9,
       manufacturer = $10,
       model = $11,
+      ${hardwareUpdates.join('\n      ')}
       status = 'online',
       last_seen = NOW(),
       updated_at = NOW()
@@ -171,19 +205,7 @@ async function checkIn({
       status,
       last_seen
     `,
-    [
-      agentId,
-      hostname,
-      osName,
-      osVersion,
-      architecture,
-      serialNumber,
-      ipAddress,
-      loggedInUser,
-      agentVersion,
-      manufacturer,
-      model,
-    ]
+    params
   );
 
   return result.rows[0] || null;
