@@ -211,7 +211,7 @@ async function reportAgentJobResult(req, res) {
   }
 }
 
-const dashboardJobTypes = new Set(['inventory_refresh', 'windows_update_scan']);
+const dashboardJobTypes = new Set(['inventory_refresh', 'windows_update_scan', 'software_inventory_refresh']);
 
 function parseJobDeviceId(value) {
   const id = Number(value);
@@ -223,7 +223,7 @@ async function createDeviceJob(req, res) {
   if (!deviceId) return res.status(400).json({ error: 'Invalid device ID' });
   const jobType = req.body?.job_type;
   if (!dashboardJobTypes.has(jobType)) {
-    return res.status(400).json({ error: 'Unsupported job type; only inventory_refresh and windows_update_scan are allowed' });
+    return res.status(400).json({ error: 'Unsupported job type; only inventory_refresh, windows_update_scan and software_inventory_refresh are allowed' });
   }
   try {
     const device = await rmmRepository.findById(deviceId);
@@ -232,7 +232,7 @@ async function createDeviceJob(req, res) {
       return res.status(400).json({ error: 'Linked asset is outside RMM scope' });
     }
     const job = await rmmJobRepository.createForDevice(deviceId, jobType, req.user.id);
-    if (!job) return res.status(409).json({ error: 'A Windows Update scan is already queued or running' });
+    if (!job) return res.status(409).json({ error: jobType === 'software_inventory_refresh' ? 'Software inventory is already queued or running' : 'A Windows Update scan is already queued or running' });
     try {
       await rmmAuditRepository.insert({
         userId: req.user.id,

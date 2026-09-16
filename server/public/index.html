@@ -2216,19 +2216,19 @@ function rmmUpdateState(d) {
   return parts.filter(Boolean).join(' · ');
 }
 
-function rmmScanFeedback(feedback, jobs) {
+function rmmScanFeedback(feedback, jobs, jobType = 'windows_update_scan', label = 'Windows Update scan') {
   if (feedback?.jobId == null) return feedback;
-  const job = jobs.find(job => String(job.id) === String(feedback.jobId) && job.job_type === 'windows_update_scan');
+  const job = jobs.find(job => String(job.id) === String(feedback.jobId) && job.job_type === jobType);
   if (!job || feedback.status === 'completed' || feedback.status === 'failed') return feedback;
   if (job.status === 'claimed' || job.status === 'started') {
-    return {...feedback,status:job.status,success:true,text:`Windows Update scan in progress (job #${job.id}).`};
+    return {...feedback,status:job.status,success:true,text:`${label} in progress (job #${job.id}).`};
   }
   if (job.status === 'completed') {
-    return {...feedback,status:job.status,success:true,text:'Windows Update scan completed successfully.'};
+    return {...feedback,status:job.status,success:true,text:`${label} completed successfully.`};
   }
   if (job.status === 'failed') {
     const detail = job.result_error || job.result_output || (job.result_code != null ? `Result code: ${job.result_code}` : 'No further details were reported.');
-    return {...feedback,status:job.status,success:false,text:`Windows Update scan failed. ${detail}`};
+    return {...feedback,status:job.status,success:false,text:`${label} failed. ${detail}`};
   }
   return feedback;
 }
@@ -2276,6 +2276,66 @@ function RMMWindowsUpdates({ device: d, jobSnapshot }) {
         </tr>)}</tbody>
       </table></div>
     </> : <p style={{ color:T.muted }}>{d.update_pending_count===0?'Zero pending updates in the last successful snapshot.':'Pending update details not reported.'}</p>}
+  </section>;
+}
+
+function rmmSoftwareState(d, now = Date.now()) {
+  const refreshed = Date.parse(d.software_refreshed_at);
+  const known = Number.isFinite(refreshed) && d.software_count != null;
+  const state = !known ? 'Software never scanned' : now-refreshed > 8*24*60*60*1000 ? 'Software inventory stale' : 'Software inventory current';
+  return ['failed','unavailable'].includes(d.software_status) ? `Software last attempt failed · ${state}` : state;
+}
+
+function filterRmmSoftware(rows, query, view) {
+  const needle = query.trim().toLowerCase();
+  return (rows || []).filter(row => (!view || row.source_views?.includes(view)) &&
+    [row.display_name,row.display_version,row.publisher].some(value => (value || '').toLowerCase().includes(needle)));
+}
+
+function RMMSoftwareInventory({ device: d, jobSnapshot }) {
+  const [query,setQuery] = useState('');
+  const [view,setView] = useState('');
+  const [submitting,setSubmitting] = useState(false);
+  const [feedback,setFeedback] = useState(null);
+  const pending = useRef(false);
+  useEffect(()=>{
+    if (jobSnapshot?.deviceId === d.id) {
+      setFeedback(current=>rmmScanFeedback(current,jobSnapshot.jobs,'software_inventory_refresh','Software inventory'));
+    }
+  },[jobSnapshot,d.id,feedback?.jobId]);
+  async function refreshSoftware() {
+    if (pending.current) return;
+    pending.current=true; setSubmitting(true); setFeedback(null);
+    try {
+      const data=await window.api.post(`/api/rmm/devices/${d.id}/jobs`,{job_type:'software_inventory_refresh'});
+      setFeedback({jobId:data.job.id,status:'queued',success:true,text:`Software inventory queued (job #${data.job.id}). Waiting for the agent.`});
+    } catch (error) {
+      setFeedback({success:false,text:error.message || 'Unable to queue software inventory'});
+    } finally { pending.current=false; setSubmitting(false); }
+  }
+  const rows=filterRmmSoftware(d.installed_software,query,view);
+  const date=value=>value?new Date(value).toLocaleString():'Unknown';
+  return <section style={{ gridColumn:'1 / -1',minWidth:0,border:`1px solid ${T.border}`,borderRadius:10,padding:16,background:T.surface,color:T.slate }}>
+    <h3>Software</h3>
+    <button type="button" disabled={submitting} onClick={refreshSoftware} style={{ background:T.surfaceAlt,color:T.slate,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 13px',cursor:submitting?'wait':'pointer' }}>{submitting?'Queuing…':'Refresh Software Inventory'}</button>
+    {feedback&&<p role={feedback.success?'status':'alert'} style={{ color:feedback.success?T.success:T.danger }}>{feedback.text}</p>}
+    <p role="status">{rmmSoftwareState(d)}</p>
+    <dl style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12 }}>
+      {[["Installed applications",d.software_count??'Unknown'],["Last successful inventory",date(d.software_refreshed_at)],["Last attempt",date(d.software_attempted_at)],["Last scan result",d.software_status??'Unknown']].map(([label,value])=><div key={label}><dt style={{ color:T.muted,fontSize:11 }}>{label}</dt><dd style={{ margin:0,fontSize:12 }}>{value}</dd></div>)}
+    </dl>
+    <p style={{ color:T.muted,fontSize:12 }}>Machine-wide software · Scheduled weekly · Stale after 8 days. Failed attempts retain the last successful snapshot. Expand an application for its registry source and install location.</p>
+    <div style={{ display:'flex',flexWrap:'wrap',gap:8,marginBottom:12 }}>
+      <input aria-label="Search installed software" placeholder="Search application, version or publisher" value={query} onChange={e=>setQuery(e.target.value)} style={{ ...getIBase(),flex:1,minWidth:200 }} />
+      <select aria-label="Filter software registry view" value={view} onChange={e=>setView(e.target.value)} style={getIBase()}><option value="">All registry views</option><option value="registry64">64-bit registry view</option><option value="registry32">32-bit registry view</option></select>
+    </div>
+    <p style={{ color:T.muted,fontSize:12 }}>{rows.length} matching applications</p>
+    {rows.length ? <div style={{ overflowX:'auto',maxHeight:440 }}><table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
+      <thead><tr>{['Application','Version','Publisher','Install Date'].map(label=><th key={label} style={{ textAlign:'left',padding:8,color:T.muted }}>{label}</th>)}</tr></thead>
+      <tbody>{rows.map((app,i)=><tr key={i}>
+        <td style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:340,overflowWrap:'anywhere' }}><details><summary style={{ cursor:'pointer' }}>{app.display_name}</summary><div style={{ color:T.muted,marginTop:8 }}>Registry view: {app.source_views?.join(', ')||'Unknown'}<br/>Install location: {app.install_location||'Unknown'}</div></details></td>
+        {[app.display_version,app.publisher,app.install_date].map((value,j)=><td key={j} style={{ padding:8,borderTop:`1px solid ${T.border}`,maxWidth:240,overflowWrap:'anywhere' }}>{value||'Unknown'}</td>)}
+      </tr>)}</tbody>
+    </table></div> : <p style={{ color:T.muted }}>{d.installed_software==null?'Software snapshot not reported.':d.software_count===0?'No installed applications reported.':'No applications match the filters.'}</p>}
   </section>;
 }
 
@@ -2753,6 +2813,7 @@ function RMMTab({ onViewAsset }) {
                 ))}
                 <RMMHardwareInventory device={selectedDevice} />
                 <RMMWindowsUpdates key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />
+                <RMMSoftwareInventory key={selectedDevice.id} device={selectedDevice} jobSnapshot={deviceJobs} />
                 <RMMAssetVerification correlation={selectedDevice.correlation} onViewAsset={onViewAsset} />
                 <RMMDeviceJobs key={selectedDevice.id} deviceId={selectedDevice.id} onDeviceRefresh={setSelectedDevice} onJobsRefresh={setDeviceJobs} />
               </div>
@@ -2898,6 +2959,7 @@ function RMMTab({ onViewAsset }) {
                             {device.hostname}
                           </button>
                           <div style={{ color:T.muted,fontSize:10,marginTop:4,maxWidth:240 }}>{rmmUpdateState(device)}</div>
+                          <div style={{ color:T.muted,fontSize:10,marginTop:3,maxWidth:240 }}>{rmmSoftwareState(device)}</div>
                         </td>
 
                         <td style={{ padding:"11px 14px" }}>

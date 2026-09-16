@@ -258,6 +258,105 @@ function Get-MBSWindowsUpdates {
     return $telemetry
 }
 
+function Convert-MBSSoftwareText {
+    param($Value, [int]$Maximum)
+    # Registry binary/multi-string/integer values are not meaningful application metadata.
+    if ($Value -isnot [string]) { return $null }
+    $valueText = ($Value -replace '[\x00-\x1f\x7f]', ' ').Trim()
+    if ([string]::IsNullOrWhiteSpace($valueText)) { return $null }
+    return $valueText.Substring(0, [Math]::Min($Maximum, $valueText.Length))
+}
+
+function Get-MBSSoftwareRegistryEntries {
+    $views = @([Microsoft.Win32.RegistryView]::Registry32)
+    if ([Environment]::Is64BitOperatingSystem) {
+        $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
+    }
+    $seenKeys = 0
+    foreach ($view in $views) {
+        $base = $null; $root = $null
+        try {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+            $root = $base.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Uninstall', $false)
+            if ($null -eq $root) { continue }
+            foreach ($name in ($root.GetSubKeyNames() | Sort-Object)) {
+                $seenKeys++
+                if ($seenKeys -gt 10000) { throw 'Software registry limit exceeded' }
+                $key = $null
+                try {
+                    $key = $root.OpenSubKey($name, $false)
+                    if ($null -eq $key) { throw 'Software registry changed during collection' }
+                    $entry = @{ source_view = $view.ToString().ToLowerInvariant() }
+                    foreach ($field in @('DisplayName','DisplayVersion','Publisher','InstallDate','InstallLocation')) {
+                        $entry[$field] = $key.GetValue($field, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                    }
+                    [pscustomobject]$entry
+                } finally { if ($null -ne $key) { $key.Dispose() } }
+            }
+        } finally {
+            if ($null -ne $root) { $root.Dispose() }
+            if ($null -ne $base) { $base.Dispose() }
+        }
+    }
+}
+
+function Convert-MBSSoftwareEntries {
+    param([object[]]$Entries)
+    $apps = @{}
+    foreach ($entry in $Entries) {
+        if ($null -eq $entry) { continue }
+        $name = Convert-MBSSoftwareText $entry.DisplayName 300
+        if (-not $name) { continue }
+        $version = Convert-MBSSoftwareText $entry.DisplayVersion 100
+        $publisher = Convert-MBSSoftwareText $entry.Publisher 200
+        # JSON tuple avoids delimiter collisions; hashtable comparison is case-insensitive.
+        $identity = ConvertTo-Json -InputObject @($name,$version,$publisher) -Compress
+        $view = $entry.source_view
+        if ($view -notin @('registry64','registry32')) { throw 'Unknown registry view' }
+        $installDate = $null
+        $rawDate = Convert-MBSSoftwareText $entry.InstallDate 32
+        $parsedDate = [datetime]::MinValue
+        if ($rawDate -and [datetime]::TryParseExact($rawDate, 'yyyyMMdd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedDate)) {
+            $installDate = $parsedDate.ToString('yyyy-MM-dd')
+        }
+        $location = Convert-MBSSoftwareText $entry.InstallLocation 500
+        if ($apps.ContainsKey($identity)) {
+            if ($apps[$identity].source_views -notcontains $view) { $apps[$identity].source_views += $view }
+            if (-not $apps[$identity].install_date) { $apps[$identity].install_date = $installDate }
+            if (-not $apps[$identity].install_location) { $apps[$identity].install_location = $location }
+            continue
+        }
+        if ($apps.Count -ge 1000) { throw 'Software application limit exceeded' }
+        $apps[$identity] = @{
+            display_name = $name; display_version = $version; publisher = $publisher
+            install_date = $installDate
+            install_location = $location
+            source_views = @($view)
+        }
+    }
+    $apps.Values | Sort-Object { $_.display_name }, { $_.display_version }, { $_.publisher }
+}
+
+function Get-MBSSoftwareInventory {
+    $attempted = (Get-Date).ToUniversalTime().ToString('o')
+    try {
+        $entries = @(Get-MBSSoftwareRegistryEntries)
+        $apps = @(Convert-MBSSoftwareEntries -Entries $entries)
+        $snapshot = @{
+            software_attempted_at = $attempted
+            software_refreshed_at = (Get-Date).ToUniversalTime().ToString('o')
+            software_status = 'success'; software_count = $apps.Count
+            installed_software = @($apps)
+        }
+        # Leave room for normal hardware fields in the existing 4 MiB check-in envelope.
+        $wire = $snapshot | ConvertTo-Json -Depth 6
+        if ([Text.Encoding]::UTF8.GetByteCount($wire) -gt 3MB) { throw 'Software payload limit exceeded' }
+        return $snapshot
+    } catch {
+        return @{software_attempted_at=$attempted; software_status='failed'}
+    }
+}
+
 function Send-MBSCheckIn {
     param(
         [object]$Config,
@@ -337,7 +436,7 @@ function Invoke-MBSNextJob {
     if ($null -eq $poll.job) { return }
 
     $job = $poll.job
-    $allowedJobTypes = @("inventory_refresh", "windows_update_scan")
+    $allowedJobTypes = @("inventory_refresh", "windows_update_scan", "software_inventory_refresh")
     if ($allowedJobTypes -cnotcontains $job.job_type) {
         Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
             -ResultError "Unsupported job type; no action was executed"
@@ -352,6 +451,10 @@ function Invoke-MBSNextJob {
         if ($job.job_type -ceq 'windows_update_scan') {
             $updates = Get-MBSWindowsUpdates
             foreach ($key in $updates.Keys) { $inventory[$key] = $updates[$key] }
+        }
+        if ($job.job_type -ceq 'software_inventory_refresh') {
+            $software = Get-MBSSoftwareInventory
+            foreach ($key in $software.Keys) { $inventory[$key] = $software[$key] }
         }
         $failureMessage = "Inventory refresh check-in failed"
         Send-MBSCheckIn -Config $Config -Inventory $inventory | Out-Null
@@ -368,7 +471,12 @@ function Invoke-MBSNextJob {
             -ResultError "Windows Update scan failed or unavailable; previous successful snapshot retained"
         return
     }
-    $output = if ($job.job_type -ceq 'windows_update_scan') { 'Windows Update scan completed successfully' } else { 'Hardware inventory refreshed successfully' }
+    if ($job.job_type -ceq 'software_inventory_refresh' -and $software.software_status -ne 'success') {
+        Send-MBSJobResult -Config $Config -JobId $job.id -Status failed -ResultCode 1 `
+            -ResultError "Software inventory failed or unavailable; previous successful snapshot retained"
+        return
+    }
+    $output = if ($job.job_type -ceq 'windows_update_scan') { 'Windows Update scan completed successfully' } elseif ($job.job_type -ceq 'software_inventory_refresh') { 'Software inventory completed successfully' } else { 'Hardware inventory refreshed successfully' }
     # A reporting failure must not turn successful execution into a failed job.
     Send-MBSJobResult -Config $Config -JobId $job.id -Status completed `
         -ResultOutput $output

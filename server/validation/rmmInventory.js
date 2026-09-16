@@ -53,9 +53,53 @@ function validateUpdates(body) {
   }
   return result;
 }
+const calendarDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
+const softwareFields = {
+  software_attempted_at: value => date(value) && calendarDate(value.slice(0,10)),
+  software_refreshed_at: value => date(value) && calendarDate(value.slice(0,10)),
+  software_status: value => ['success', 'failed', 'unavailable'].includes(value),
+  software_count: integer(1000),
+};
+const softwareItemFields = {
+  display_name: value => text(300)(value) && value.trim().length > 0,
+  display_version: text(100), publisher: text(200), install_date: calendarDate,
+  install_location: text(500),
+  source_views: value => Array.isArray(value) && value.length <= 2 && value.length > 0 &&
+    new Set(value).size === value.length && value.every(v => ['registry64', 'registry32'].includes(v)),
+};
+function validateSoftware(body) {
+  const result = {};
+  for (const [field, valid] of Object.entries(softwareFields)) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+    if (body[field] !== null && !valid(body[field])) throw new Error(`Invalid inventory field: ${field}`);
+    result[field] = body[field];
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'installed_software')) {
+    const rows = body.installed_software;
+    if (rows !== null && (!Array.isArray(rows) || rows.length > 1000)) throw new Error('Invalid installed_software (maximum 1000)');
+    result.installed_software = rows === null ? null : rows.map(row => {
+      if (!row || typeof row !== 'object' || Array.isArray(row) || !softwareItemFields.display_name(row.display_name)) throw new Error('Invalid software application');
+      const item = {};
+      for (const key of Object.keys(row)) {
+        if (!Object.prototype.hasOwnProperty.call(softwareItemFields, key) ||
+          (row[key] !== null && !softwareItemFields[key](row[key]))) throw new Error(`Invalid software field: ${key}`);
+        item[key] = row[key];
+      }
+      return item;
+    });
+    if (rows !== null && body.software_count != null && rows.length !== body.software_count) throw new Error('Software count must match snapshot');
+  }
+  // A failed attempt cannot clear or replace any part of the successful snapshot.
+  if (['failed', 'unavailable'].includes(body.software_status) &&
+      ['software_refreshed_at', 'software_count', 'installed_software'].some(key => Object.prototype.hasOwnProperty.call(body, key))) {
+    throw new Error('Failed software collection must omit successful snapshot fields');
+  }
+  return result;
+}
 function validateInventory(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Inventory must be an object');
-  const hardware = validateUpdates(body);
+  const hardware = { ...validateUpdates(body), ...validateSoftware(body) };
   for (const [field, valid] of Object.entries({ ...legacyFields, ...hardwareFields })) {
     const value = body[field];
     if (value != null && !valid(value)) throw new Error(`Invalid inventory field: ${field}`);

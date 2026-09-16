@@ -44,6 +44,24 @@ test('starts independently of browser activity and repeats hourly without overla
   expect(pool.query).toHaveBeenCalledTimes(1);
   finish({rows:[]});
   await jest.advanceTimersByTimeAsync(3600000);
-  expect(pool.query).toHaveBeenCalledTimes(2);
+  expect(pool.query).toHaveBeenCalledTimes(4);
   clearInterval(timer); jest.useRealTimers();
+});
+
+test.each([
+  [{},true], [{software_refreshed_at:ago(7)},true], [{software_refreshed_at:ago(6.999)},false],
+  [{software_refreshed_at:ago(20),software_attempted_at:ago(1)},false],
+  [{active_scan:true},false], [{last_scan_job_at:ago(1)},false],
+  [{update_refreshed_at:ago(1)},true],
+])('software weekly eligibility %j is %s', (device,expected)=>{
+  expect(scheduler.isDue(device,now,'software_inventory_refresh')).toBe(expected);
+});
+test('software scheduler uses its own persisted timestamps, job type and audit', async()=>{
+  pool.query.mockResolvedValue({rows:[{id:1},{id:2,software_attempted_at:ago(1)}]});
+  jobs.createForDevice.mockResolvedValue({id:50});
+  await scheduler.run(now,'software_inventory_refresh');
+  expect(jobs.createForDevice).toHaveBeenCalledTimes(1);
+  expect(jobs.createForDevice).toHaveBeenCalledWith(1,'software_inventory_refresh',null);
+  expect(pool.query.mock.calls[0][0]).toContain('d.software_attempted_at, d.software_refreshed_at');
+  expect(audit.insert).toHaveBeenCalledWith(expect.objectContaining({details:'Automatically queued software_inventory_refresh job 50'}));
 });

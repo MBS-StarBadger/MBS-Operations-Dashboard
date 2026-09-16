@@ -164,7 +164,12 @@ async function initDB() {
         ADD COLUMN IF NOT EXISTS update_security_count INTEGER,
         ADD COLUMN IF NOT EXISTS update_driver_count INTEGER,
         ADD COLUMN IF NOT EXISTS update_reboot_required BOOLEAN,
-        ADD COLUMN IF NOT EXISTS pending_updates JSONB;
+        ADD COLUMN IF NOT EXISTS pending_updates JSONB,
+        ADD COLUMN IF NOT EXISTS software_attempted_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS software_refreshed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS software_status VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS software_count INTEGER,
+        ADD COLUMN IF NOT EXISTS installed_software JSONB;
 
       CREATE TABLE IF NOT EXISTS rmm_audit_log (
         id SERIAL PRIMARY KEY,
@@ -201,6 +206,10 @@ async function initDB() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_rmm_jobs_active_update_scan
         ON rmm_jobs(device_id)
         WHERE job_type = 'windows_update_scan' AND status IN ('queued', 'claimed', 'started');
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rmm_jobs_active_software_inventory
+        ON rmm_jobs(device_id)
+        WHERE job_type = 'software_inventory_refresh' AND status IN ('queued', 'claimed', 'started');
 
       CREATE INDEX IF NOT EXISTS idx_rmm_jobs_created_at
         ON rmm_jobs(created_at DESC);

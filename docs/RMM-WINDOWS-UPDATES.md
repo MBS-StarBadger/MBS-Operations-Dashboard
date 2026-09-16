@@ -1,6 +1,6 @@
 # Windows Update visibility v1
 
-Inventory only. Existing agent authentication, audit, correlation and job transitions remain in force. The fixed job allowlist contains only `inventory_refresh` and `windows_update_scan`. No install, approval, reboot, policy changes or command execution was added.
+Inventory only. Existing agent authentication, audit, correlation and job transitions remain in force. The fixed job allowlist contains `inventory_refresh`, `windows_update_scan`, and `software_inventory_refresh` (see [Software Inventory](RMM-SOFTWARE-INVENTORY.md)). No install, approval, reboot, policy changes or command execution was added.
 
 ## Collection and scheduling
 
@@ -10,7 +10,7 @@ The scan runs only inside a `windows_update_scan` job, after its started transit
 
 **Scan for Updates** in the Windows Update device section queues `windows_update_scan` through the existing admin-only device-job API. This force-scan bypasses weekly eligibility, but an existing queued/claimed/started scan returns HTTP 409. It never executes directly in the browser. **Refresh Inventory** remains a separate control.
 
-After database initialization, the server scheduler runs immediately and hourly, independently of browser activity. It considers devices reporting a Windows OS and excludes linked assets outside Desktop/Laptop/Server scope. Devices with no scan history are eligible immediately. The target interval is seven days after the latest persisted `update_attempted_at` or `update_refreshed_at`. Recent scan-job creation also imposes a seven-day backoff for older agents or failures before telemetry arrives. Failed attempts therefore normally retry weekly; administrators can force an earlier retry. Offline devices retain their queued scan until the agent polls.
+After database initialization, the shared server scheduler runs immediately and hourly, independently of browser activity. Software inventory has a separate fixed schedule and active-job guard in the same scheduler. It considers devices reporting a Windows OS and excludes linked assets outside Desktop/Laptop/Server scope. Devices with no scan history are eligible immediately. The target interval is seven days after the latest persisted `update_attempted_at` or `update_refreshed_at`. Recent scan-job creation also imposes a seven-day backoff for older agents or failures before telemetry arrives. Failed attempts therefore normally retry weekly; administrators can force an earlier retry. Offline devices retain their queued scan until the agent polls.
 
 A partial unique index on `rmm_jobs(device_id)` for `windows_update_scan` in queued/claimed/started states prevents duplicates across manual requests, hourly scheduling, concurrent processes and server restarts. Completed/failed scans permit another manual job immediately. Automatic jobs have null `created_by` and an `RMM_JOB_CREATED` system audit entry. Active jobs are not automatically expired or reclaimed by this phase; an abandoned claimed/started scan continues to block another scan.
 
