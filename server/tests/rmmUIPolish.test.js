@@ -12,13 +12,13 @@ const plugin=({types:t})=>({visitor:{JSXElement:{exit(p){
  p.replaceWith(t.callExpression(t.identifier('element'),[kind,t.objectExpression(attrs),...children]));
 }},JSXFragment:{exit(p){p.replaceWith(t.arrayExpression(p.node.children.filter(c=>c.type!=='JSXText'||c.value.trim()).map(c=>c.type==='JSXExpressionContainer'?c.expression:c.type==='JSXText'?t.stringLiteral(c.value):c)));}}}});
 const ast=babel.parseSync(html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)[1],{parserOpts:{plugins:['jsx']},configFile:false,babelrc:false});
-const names=['RMMActiveAlerts','RMMChip','RMMHardwareInventory','RMMEndpointSummary','RMMHealthMeter','RMMDeviceHealth','rmmUpdateState','rmmSoftwareState','RMMWindowsUpdates','RMMSoftwareInventory','filterRmmSoftware','rmmScanFeedback'];
+const names=['RMMAlertOverviewPanel','RMMChip','RMMHardwareInventory','RMMEndpointSummary','RMMHealthMeter','RMMDeviceHealth','rmmUpdateState','rmmSoftwareState','RMMWindowsUpdates','RMMSoftwareInventory','filterRmmSoftware','rmmScanFeedback'];
 const componentSource=ast.program.body.filter(node=>node.type==='FunctionDeclaration'&&names.includes(node.id.name)).map(node=>html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/)[1].slice(node.start,node.end)).join('\n');
 const code=babel.transformSync(componentSource,{plugins:[plugin],parserOpts:{plugins:['jsx']},configFile:false,babelrc:false}).code;
 function render(name,props,mode='dark'){
  const T={surface:mode==='dark'?'#17202a':'#ffffff',surfaceAlt:mode==='dark'?'#222b35':'#f4f5f6',slate:mode==='dark'?'#eee':'#111',muted:'#888',border:'#777',warningText:'#f90',warningBg:'#321',warningBorder:'#f90'};
  function element(tag,props,...children){return typeof tag==='function'?tag({...props,children}):{tag,props,children};}
- return vm.runInNewContext(`${code};${name}(props)`,{RMMUI:ui,RMMHealth:health,T,props,element,useState:value=>[value,()=>{}],useRef:value=>({current:value}),useEffect:()=>{},getIBase:()=>({})});
+ return vm.runInNewContext(`${code};${name}(props)`,{RMMUI:ui,RMMHealth:health,RMMAlertOverview:require('../public/rmmAlertOverview'),T,props,element,useState:value=>[value,()=>{}],useRef:value=>({current:value}),useEffect:()=>{},getIBase:()=>({})});
 }
 function text(tree){if(tree==null||typeof tree==='boolean')return '';if(Array.isArray(tree))return tree.map(text).join(' ');if(typeof tree==='object')return text(tree.children);return String(tree);}
 function nodes(tree,tag){if(!tree||typeof tree!=='object')return [];if(Array.isArray(tree))return tree.flatMap(v=>nodes(v,tag));return [...(tree.tag===tag?[tree]:[]),...nodes(tree.children,tag)];}
@@ -106,11 +106,26 @@ test('DIMM raw ID stays inspectable and part/model strings never supply manufact
  expect(text(tree)).not.toContain('Unknown · Unknown');
 });
 
-test('dashboard alert action reuses endpoint navigation and displays identity/severity',()=>{
- const onOpen=jest.fn(),device={id:226,hostname:'LT226'};
- const tree=render('RMMActiveAlerts',{devices:[device],onOpen,alerts:[{id:'226:disk',deviceId:226,hostname:'LT226',assetTag:'MBS-226',severity:'critical',title:'Storage Critical',detail:'C: 93% used',at:Date.now()}]});
- for(const value of ['critical','LT226','MBS-226','Storage Critical','C: 93% used','View Endpoint'])expect(text(tree)).toContain(value);
- nodes(tree,'button')[0].props.onClick();expect(onOpen).toHaveBeenCalledWith(device);
+test('overview consolidates rows and wires endpoint, asset and filter actions',()=>{
+ const onOpen=jest.fn(),onFilter=jest.fn(),onViewAsset=jest.fn(),device={id:226,hostname:'LT226',asset_tag:'MBS-226',asset_id:42,status:'online'};
+ const overview=require('../public/rmmAlertOverview').aggregate({alerts:[{id:'disk',deviceId:226,severity:'critical',category:'hardware',title:'Storage Critical'},{id:'update',deviceId:226,severity:'info',category:'updates',title:'1 update'}]},[device]);
+ const tree=render('RMMAlertOverviewPanel',{overview,filter:'all',onFilter,onOpen,onViewAsset});
+ for(const value of ['critical','LT226','MBS-226','Storage Critical','1 update','2 active alerts','1 affected endpoints'])expect(text(tree).replace(/\s+/g,' ')).toContain(value);
+ expect(nodes(tree,'tr')).toHaveLength(2);
+ const buttons=nodes(tree,'button');
+ buttons.find(b=>text(b)==='View Endpoint').props.onClick();expect(onOpen).toHaveBeenCalledWith(device);
+ buttons.find(b=>text(b)==='MBS-226').props.onClick();expect(onViewAsset).toHaveBeenCalledWith(42);
+ for(const key of ['Hardware','Critical'])buttons.find(b=>text(b).includes(key)).props.onClick();
+ expect(onFilter.mock.calls).toEqual([['hardware'],['critical']]);
+ expect(buttons[0].props['aria-pressed']).toBe(true);
+});
+test('overview bounds DOM for 200 endpoints and 1000 alerts',()=>{
+ const devices=Array.from({length:200},(_,id)=>({id,hostname:`PC-${id}`}));
+ const alerts=devices.flatMap(d=>Array.from({length:5},(_,i)=>({id:`${d.id}:${i}`,deviceId:d.id,severity:'info',category:'jobs',title:'Job issue'})));
+ const overview=require('../public/rmmAlertOverview').aggregate({alerts},devices);
+ const tree=render('RMMAlertOverviewPanel',{overview,filter:'all'});
+ expect(nodes(tree,'tr')).toHaveLength(26);expect(nodes(tree,'article')).toHaveLength(0);
+ expect(text(tree).replace(/\s+/g,' ')).toContain('1000 active alerts');expect(text(tree).replace(/\s+/g,' ')).toContain('200 affected endpoints');expect(text(tree).replace(/\s+/g,' ')).toContain('Page 1 of 8');
 });
 
 test('fleet refresh uses existing timer, prevents overlap and ignores responses after unmount',async()=>{

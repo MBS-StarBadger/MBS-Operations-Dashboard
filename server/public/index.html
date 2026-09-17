@@ -11,6 +11,7 @@
   <script src="/rmmHealth.js"></script>
   <script src="/rmmUI.js"></script>
 <script src="/rmmAlerts.js"></script>
+<script src="/rmmAlertOverview.js"></script>
   <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #fff; }
 .rmm-panel{border-radius:10px;padding:16px;min-width:0}
 .rmm-panel h3{font-size:14px;margin:0 0 10px}
@@ -2459,17 +2460,40 @@ function RMMAssetVerification({ correlation, onViewAsset }) {
   </section>;
 }
 
-function RMMActiveAlerts({ alerts, onOpen, devices }) {
+function RMMAlertOverviewPanel({ overview, filter, onFilter, onOpen, onViewAsset }) {
+  const [page,setPage]=useState(0);
+  const pageSize=25, lastPage=Math.max(0,Math.ceil(overview.rows.length/pageSize)-1), currentPage=Math.min(page,lastPage);
+  useEffect(()=>setPage(0),[overview.rows.map(row=>row.device.id).join(','),filter]);
+  const cell={padding:'10px 12px',textAlign:'left',borderBottom:`1px solid ${T.border}`};
   return <section className="rmm-panel" style={{ background:T.surface,color:T.slate,marginBottom:20 }}>
-    <h3>Active Alerts</h3>
-    {!alerts.length&&<p style={{ color:T.muted }}>No active alerts match this view.</p>}
-    <div className="rmm-grid">{alerts.map(a=><article key={a.id} style={{ border:`1px solid ${T.border}`,borderRadius:8,padding:12 }}>
-      <RMMChip critical={a.severity==='critical'} warning={a.severity==='attention'}>{a.severity}</RMMChip>
-      <strong> {a.hostname}</strong>{a.assetTag&&<div>Asset {a.assetTag}</div>}
-      <h4>{a.title}</h4><p>{a.detail}</p>
-      {a.at!=null&&<p style={{ color:T.muted,fontSize:11 }}>{RMMUI.timestamp(new Date(a.at).toISOString())}</p>}
-      <button type="button" onClick={()=>onOpen(devices.find(d=>String(d.id)===String(a.deviceId)))}>View Endpoint</button>
-    </article>)}</div>
+    <h3>Alert Overview</h3>
+    <p>{overview.total} active alerts · {overview.affected} affected endpoints</p>
+    <div style={{ display:'flex',flexWrap:'wrap',gap:8 }}>
+      {Object.entries(RMMAlertOverview.filters).map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} onClick={()=>{setPage(0);onFilter(key);}} style={{ background:filter===key?T.surfaceAlt:T.surface,color:T.slate,border:`${filter===key?2:1}px solid ${T.border}`,borderRadius:6,padding:'8px 12px' }}>
+        {label} ({key==='all'?overview.total:overview.counts[key]??overview.categoryCounts[key]})
+      </button>)}
+    </div>
+    <h4>Affected Endpoints</h4>
+    <p style={{ color:T.muted }}>{overview.rows.length} matching endpoints · Counts and highest severity include all alerts on each endpoint.</p>
+    {!overview.rows.length?<p>No active alerts match this view.</p>:<>
+      <div style={{ overflowX:'auto' }}><table style={{ width:'100%',borderCollapse:'collapse' }}>
+        <thead><tr>{['Hostname','Asset','Status','Highest severity','Alerts','Reasons','Action'].map(label=><th key={label} scope="col" style={cell}>{label}</th>)}</tr></thead>
+        <tbody>{overview.rows.slice(currentPage*pageSize,(currentPage+1)*pageSize).map(row=><tr key={row.device.id}>
+          <td style={cell}><strong>{row.device.hostname}</strong></td>
+          <td style={cell}>{row.device.asset_tag?(row.device.asset_id&&onViewAsset?<button type="button" onClick={()=>onViewAsset(row.device.asset_id)}>{row.device.asset_tag}</button>:row.device.asset_tag):'—'}</td>
+          <td style={cell}>{row.device.status||'Unknown'}</td>
+          <td style={cell}><RMMChip critical={row.highestSeverity==='critical'} warning={row.highestSeverity==='attention'}>{row.highestSeverity}</RMMChip></td>
+          <td style={cell}>{row.total} {row.total===1?'alert':'alerts'}</td>
+          <td style={{ ...cell,maxWidth:420,overflowWrap:'anywhere' }}>{row.summary}</td>
+          <td style={cell}><button type="button" onClick={()=>onOpen(row.device)}>View Endpoint</button></td>
+        </tr>)}</tbody>
+      </table></div>
+      {lastPage>0&&<div style={{ display:'flex',gap:12,alignItems:'center',marginTop:12 }}>
+        <button type="button" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>Previous</button>
+        <span>Page {currentPage+1} of {lastPage+1} · 25 endpoints per page</span>
+        <button type="button" disabled={currentPage===lastPage} onClick={()=>setPage(currentPage+1)}>Next</button>
+      </div>}
+    </>}
   </section>;
 }
 
@@ -2587,7 +2611,8 @@ function RMMTab({ onViewAsset }) {
   };
 
   const alertData=RMMAlerts.derive(devices,healthNow);
-  const filtered=RMMAlerts.filter(alertData,devices,alertFilter,alertSearch);
+  const overview=RMMAlertOverview.aggregate(alertData,devices,alertFilter,alertSearch);
+  const filtered=RMMAlerts.filter(alertData,devices,'all',alertSearch);
   const stats={total:devices.length,online:devices.filter(d=>d.status==='online').length,offline:devices.filter(d=>d.status==='offline').length,alerts:alertData.total};
 
   return (
@@ -2706,13 +2731,12 @@ function RMMTab({ onViewAsset }) {
       </div>
 
       {!selectedDevice&&<>
-      <p style={{ color:T.muted }}>Critical {alertData.counts.critical} · Attention {alertData.counts.attention} · Info {alertData.counts.info}</p>
       {fleetRefreshError&&<p role="alert" style={{ color:T.warningText }}>{fleetRefreshError}</p>}
       <div style={{ display:'flex',flexWrap:'wrap',gap:8,marginBottom:14 }}>
         <label>Search endpoints <input value={alertSearch} onChange={e=>setAlertSearch(e.target.value)} placeholder="Hostname or asset tag" /></label>
-        <label>Filter <select value={alertFilter} onChange={e=>setAlertFilter(e.target.value)}>{['all','critical','attention','info','offline','updates','hardware','stale'].map(value=><option key={value} value={value}>{value[0].toUpperCase()+value.slice(1)}</option>)}</select></label>
+
       </div>
-      <RMMActiveAlerts alerts={filtered.alerts} devices={devices} onOpen={openDevice} />
+      <RMMAlertOverviewPanel overview={overview} filter={alertFilter} onFilter={setAlertFilter} onOpen={openDevice} onViewAsset={onViewAsset} />
       </>}
 
       {/* RMM Internal Navigation */}
